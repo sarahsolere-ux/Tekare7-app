@@ -15,20 +15,127 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-        .block-container {padding-top: 1.4rem; padding-bottom: 3rem;}
-        h1 {margin-bottom: .15rem;}
-        .subtitle {opacity: .72; margin-bottom: 1rem;}
+        .stApp {
+            background:
+                radial-gradient(circle at 5% 5%, rgba(255, 77, 109, .18), transparent 28%),
+                radial-gradient(circle at 95% 8%, rgba(0, 210, 255, .16), transparent 26%),
+                radial-gradient(circle at 80% 92%, rgba(124, 58, 237, .16), transparent 28%);
+        }
+
+        .block-container {
+            padding-top: 1.2rem;
+            padding-bottom: 3rem;
+            max-width: 1500px;
+        }
+
+        .hero {
+            padding: 24px 28px;
+            border-radius: 24px;
+            margin: 4px 0 18px 0;
+            color: white;
+            background: linear-gradient(120deg, #ff4d6d 0%, #7c3aed 48%, #00b4d8 100%);
+            box-shadow: 0 18px 46px rgba(124, 58, 237, .24);
+        }
+
+        .hero h1 {
+            margin: 0;
+            font-size: 2.25rem;
+            line-height: 1.05;
+        }
+
+        .hero p {
+            margin: 8px 0 0 0;
+            font-size: 1rem;
+            opacity: .94;
+        }
+
         [data-testid="stMetric"] {
-            border: 1px solid rgba(128,128,128,.22);
-            border-radius: 16px;
-            padding: 14px 16px;
-            background: rgba(128,128,128,.05);
+            border: 1px solid rgba(255,255,255,.16);
+            border-radius: 18px;
+            padding: 15px 16px;
+            background: linear-gradient(135deg, rgba(124,58,237,.20), rgba(0,180,216,.12));
+            box-shadow: 0 8px 22px rgba(0,0,0,.08);
         }
+
+        [data-testid="stMetricLabel"] {font-weight: 700;}
+        [data-testid="stMetricValue"] {font-weight: 800;}
+
         div[data-testid="stForm"] {
-            border: 1px solid rgba(128,128,128,.20);
-            border-radius: 16px;
-            padding: 18px;
+            border: 1px solid rgba(255, 77, 109, .35);
+            border-radius: 20px;
+            padding: 20px;
+            background: linear-gradient(145deg, rgba(255,77,109,.08), rgba(124,58,237,.08));
         }
+
+        div[data-baseweb="tab-list"] {
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        div[data-baseweb="tab-list"] button {
+            border-radius: 999px;
+            padding-left: 14px;
+            padding-right: 14px;
+            border: 1px solid rgba(255,255,255,.12);
+            font-weight: 700;
+        }
+
+        div[data-baseweb="tab-list"] button:nth-child(1) {background: rgba(124,58,237,.18);}
+        div[data-baseweb="tab-list"] button:nth-child(2) {background: rgba(0,180,216,.18);}
+        div[data-baseweb="tab-list"] button:nth-child(3) {background: rgba(255,183,3,.18);}
+        div[data-baseweb="tab-list"] button:nth-child(4) {background: rgba(16,185,129,.18);}
+        div[data-baseweb="tab-list"] button:nth-child(5) {background: rgba(236,72,153,.18);}
+        div[data-baseweb="tab-list"] button:nth-child(6) {background: rgba(59,130,246,.18);}
+        div[data-baseweb="tab-list"] button:nth-child(7) {background: rgba(249,115,22,.18);}
+
+        div.stButton > button,
+        div[data-testid="stFormSubmitButton"] > button {
+            border: none;
+            border-radius: 12px;
+            font-weight: 800;
+            background: linear-gradient(90deg, #ff4d6d, #7c3aed);
+            color: white;
+            box-shadow: 0 8px 20px rgba(124,58,237,.22);
+        }
+
+        div.stButton > button:hover,
+        div[data-testid="stFormSubmitButton"] > button:hover {
+            filter: brightness(1.08);
+            color: white;
+        }
+
+        h2, h3 {
+            background: linear-gradient(90deg, #ff4d6d, #7c3aed, #00b4d8);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            font-weight: 850 !important;
+        }
+
+        [data-testid="stDataFrame"] {
+            border: 1px solid rgba(0,180,216,.25);
+            border-radius: 16px;
+            overflow: hidden;
+        }
+
+        .legend {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin: 6px 0 14px 0;
+        }
+
+        .legend span {
+            padding: 6px 11px;
+            border-radius: 999px;
+            font-weight: 700;
+            font-size: .88rem;
+        }
+
+        .green {background: rgba(16,185,129,.18);}
+        .orange {background: rgba(245,158,11,.20);}
+        .purple {background: rgba(124,58,237,.20);}
+        .blue {background: rgba(59,130,246,.18);}
+        .red {background: rgba(239,68,68,.18);}
     </style>
     """,
     unsafe_allow_html=True,
@@ -89,6 +196,26 @@ def init_db():
             """
         )
 
+        reservation_columns = {
+            item[1] for item in con.execute("PRAGMA table_info(reservations)").fetchall()
+        }
+        if "checked_in" not in reservation_columns:
+            con.execute(
+                "ALTER TABLE reservations ADD COLUMN checked_in INTEGER NOT NULL DEFAULT 0"
+            )
+        if "checked_out" not in reservation_columns:
+            con.execute(
+                "ALTER TABLE reservations ADD COLUMN checked_out INTEGER NOT NULL DEFAULT 0"
+            )
+        if "checkin_at" not in reservation_columns:
+            con.execute(
+                "ALTER TABLE reservations ADD COLUMN checkin_at TEXT DEFAULT ''"
+            )
+        if "checkout_at" not in reservation_columns:
+            con.execute(
+                "ALTER TABLE reservations ADD COLUMN checkout_at TEXT DEFAULT ''"
+            )
+
         if con.execute("SELECT COUNT(*) FROM rooms").fetchone()[0] == 0:
             con.executemany(
                 "INSERT INTO rooms(name, nightly_rate) VALUES (?, ?)",
@@ -133,8 +260,11 @@ def room_status(room_id, maintenance):
         SELECT 1 FROM reservations
         WHERE room_id = ?
           AND status != 'Annulée'
-          AND arrival <= ?
-          AND departure > ?
+          AND checked_out = 0
+          AND (
+              (checked_in = 1)
+              OR (arrival <= ? AND departure > ?)
+          )
         LIMIT 1
         """,
         (room_id, today, today),
@@ -147,6 +277,7 @@ def room_status(room_id, maintenance):
         SELECT 1 FROM reservations
         WHERE room_id = ?
           AND status != 'Annulée'
+          AND checked_out = 0
           AND arrival > ?
         LIMIT 1
         """,
@@ -177,6 +308,7 @@ def reservation_conflict(room_id, arrival, departure):
         SELECT 1 FROM reservations
         WHERE room_id = ?
           AND status != 'Annulée'
+          AND checked_out = 0
           AND arrival < ?
           AND departure > ?
         LIMIT 1
@@ -221,9 +353,21 @@ def reservation_view():
             - date.fromisoformat(item["arrival"])
         ).days
 
+        if item.get("checked_out"):
+            stay_status = "🔵 Check-out fait"
+        elif item.get("checked_in"):
+            stay_status = "🟣 En séjour"
+        elif date.fromisoformat(item["arrival"]) > date.today():
+            stay_status = "🟠 À venir"
+        elif date.fromisoformat(item["departure"]) <= date.today():
+            stay_status = "🔴 À clôturer"
+        else:
+            stay_status = "🟡 Arrivée attendue"
+
         result.append(
             {
                 "ID": f'R{item["id"]:03d}',
+                "Séjour": stay_status,
                 "Chambre": item["room_name"],
                 "Client": item["client"],
                 "Téléphone": item["phone"] or "-",
@@ -326,7 +470,7 @@ def today_movements():
         SELECT r.id, r.client, r.phone, rm.name AS room_name
         FROM reservations r
         JOIN rooms rm ON rm.id = r.room_id
-        WHERE r.arrival = ? AND r.status != 'Annulée'
+        WHERE r.arrival = ? AND r.status != 'Annulée' AND r.checked_in = 0
         ORDER BY rm.name
         """,
         (today,),
@@ -337,7 +481,7 @@ def today_movements():
         SELECT r.id, r.client, r.phone, rm.name AS room_name
         FROM reservations r
         JOIN rooms rm ON rm.id = r.room_id
-        WHERE r.departure = ? AND r.status != 'Annulée'
+        WHERE r.departure = ? AND r.status != 'Annulée' AND r.checked_out = 0
         ORDER BY rm.name
         """,
         (today,),
@@ -346,19 +490,129 @@ def today_movements():
     return arrivals, departures
 
 
+def planning_view(start_date, days):
+    room_list = rows("SELECT * FROM rooms ORDER BY name")
+    reservations = rows(
+        """
+        SELECT id, room_id, client, arrival, departure, status, checked_in, checked_out
+        FROM reservations
+        WHERE status != 'Annulée'
+        ORDER BY arrival
+        """
+    )
+
+    result = []
+    for room in room_list:
+        line = {"Chambre": room["name"]}
+        for offset in range(days):
+            current_day = start_date + timedelta(days=offset)
+            label = current_day.strftime("%d/%m")
+            cell = "🟢 Libre"
+
+            if room["maintenance"]:
+                cell = "🛠️ Maintenance"
+            else:
+                for reservation in reservations:
+                    if reservation["room_id"] != room["id"]:
+                        continue
+                    if reservation["checked_out"]:
+                        continue
+
+                    arrival = date.fromisoformat(reservation["arrival"])
+                    departure = date.fromisoformat(reservation["departure"])
+
+                    if arrival <= current_day < departure:
+                        if reservation["checked_in"]:
+                            cell = f'🟣 {reservation["client"]}'
+                        else:
+                            cell = f'🟠 {reservation["client"]}'
+                        break
+
+            line[label] = cell
+        result.append(line)
+
+    return result
+
+
+def client_summary():
+    data = rows(
+        """
+        SELECT r.*, rm.name AS room_name
+        FROM reservations r
+        JOIN rooms rm ON rm.id = r.room_id
+        WHERE r.status != 'Annulée'
+        ORDER BY r.departure DESC
+        """
+    )
+
+    clients = {}
+    for item in data:
+        key = (item["client"].strip(), (item["phone"] or "").strip())
+        paid = paid_for(item["id"])
+
+        if key not in clients:
+            clients[key] = {
+                "Client": key[0],
+                "Téléphone": key[1] or "-",
+                "Séjours": 0,
+                "Total réservé": 0,
+                "Total payé": 0,
+                "Reste": 0,
+                "Dernier départ": item["departure"],
+            }
+
+        clients[key]["Séjours"] += 1
+        clients[key]["Total réservé"] += int(item["total"])
+        clients[key]["Total payé"] += paid
+        clients[key]["Reste"] += max(int(item["total"]) - paid, 0)
+
+        if item["departure"] > clients[key]["Dernier départ"]:
+            clients[key]["Dernier départ"] = item["departure"]
+
+    result = []
+    for client in clients.values():
+        result.append(
+            {
+                "Client": client["Client"],
+                "Téléphone": client["Téléphone"],
+                "Séjours": client["Séjours"],
+                "Total réservé": format_ar(client["Total réservé"]),
+                "Total payé": format_ar(client["Total payé"]),
+                "Reste": format_ar(client["Reste"]),
+                "Dernier départ": client["Dernier départ"],
+            }
+        )
+
+    return sorted(result, key=lambda item: item["Dernier départ"], reverse=True)
+
+
 init_db()
 
-st.title("🏨 GestHotel Pro")
 st.markdown(
-    '<div class="subtitle">Gestion des chambres, réservations, paiements et chiffre d’affaires.</div>',
+    """
+    <div class="hero">
+        <h1>🏨 GestHotel Pro</h1>
+        <p>Réservations • chambres • clients • check-in / check-out • paiements • dépenses</p>
+    </div>
+    """,
     unsafe_allow_html=True,
 )
 
-tab_dashboard, tab_rooms, tab_reservations, tab_payments, tab_expenses = st.tabs(
+(
+    tab_dashboard,
+    tab_rooms,
+    tab_reservations,
+    tab_planning,
+    tab_clients,
+    tab_payments,
+    tab_expenses,
+) = st.tabs(
     [
         "📊 Tableau de bord",
         "🛏️ Chambres",
         "📅 Réservations",
+        "🗓️ Planning",
+        "👥 Clients",
         "💰 Paiements",
         "🧾 Dépenses",
     ]
@@ -640,44 +894,290 @@ with tab_reservations:
 
     st.markdown("---")
     st.subheader("📋 Réservations")
-    reservation_data = reservation_view()
 
-    if reservation_data:
+    search_col, filter_col = st.columns([2, 1])
+    with search_col:
+        reservation_search = st.text_input(
+            "🔎 Rechercher un client, téléphone ou chambre",
+            key="reservation_search",
+            placeholder="Ex. Rakoto, 034..., Chambre 102",
+        )
+    with filter_col:
+        reservation_filter = st.selectbox(
+            "Filtre séjour",
+            ["Tous", "En séjour", "À venir", "Check-out fait", "À clôturer"],
+            key="reservation_filter",
+        )
+
+    reservation_data = reservation_view()
+    filtered_reservations = reservation_data
+
+    if reservation_search.strip():
+        needle = reservation_search.strip().lower()
+        filtered_reservations = [
+            item
+            for item in filtered_reservations
+            if needle in item["Client"].lower()
+            or needle in item["Téléphone"].lower()
+            or needle in item["Chambre"].lower()
+            or needle in item["ID"].lower()
+        ]
+
+    if reservation_filter != "Tous":
+        filtered_reservations = [
+            item
+            for item in filtered_reservations
+            if reservation_filter.lower() in item["Séjour"].lower()
+        ]
+
+    if filtered_reservations:
         st.dataframe(
-            reservation_data,
+            filtered_reservations,
             use_container_width=True,
             hide_index=True,
         )
+    elif reservation_data:
+        st.warning("Aucune réservation ne correspond à votre recherche.")
+    else:
+        st.info("Aucune réservation enregistrée.")
 
-        active = rows(
-            """
-            SELECT r.id, r.client, rm.name AS room_name
-            FROM reservations r
-            JOIN rooms rm ON rm.id = r.room_id
-            WHERE r.status != 'Annulée'
-            ORDER BY r.id DESC
-            """
+    st.markdown("---")
+    st.subheader("🚪 Check-in / Check-out")
+    operation_rows = rows(
+        """
+        SELECT r.id, r.client, r.arrival, r.departure, r.checked_in, r.checked_out,
+               rm.name AS room_name
+        FROM reservations r
+        JOIN rooms rm ON rm.id = r.room_id
+        WHERE r.status != 'Annulée' AND r.checked_out = 0
+        ORDER BY r.arrival, r.id
+        """
+    )
+
+    if operation_rows:
+        operation_labels = {
+            (
+                f'R{item["id"]:03d} — {item["client"]} — {item["room_name"]} '
+                f'({item["arrival"]} → {item["departure"]})'
+            ): item
+            for item in operation_rows
+        }
+        operation_label = st.selectbox(
+            "Sélectionner le séjour",
+            list(operation_labels.keys()),
+            key="stay_operation",
         )
-        if active:
-            st.markdown("#### 🚫 Annuler une réservation")
+        stay = operation_labels[operation_label]
+
+        left_action, right_action = st.columns(2)
+
+        with left_action:
+            if not stay["checked_in"]:
+                if st.button(
+                    "🟣 Faire le check-in",
+                    use_container_width=True,
+                    key="checkin_button",
+                ):
+                    run(
+                        """
+                        UPDATE reservations
+                        SET checked_in = 1, checkin_at = CURRENT_TIMESTAMP
+                        WHERE id = ?
+                        """,
+                        (stay["id"],),
+                    )
+                    st.success("✅ Check-in enregistré.")
+                    st.rerun()
+            else:
+                st.success("🟣 Client déjà en séjour.")
+
+        with right_action:
+            if stay["checked_in"]:
+                if st.button(
+                    "🔵 Faire le check-out",
+                    use_container_width=True,
+                    key="checkout_button",
+                ):
+                    run(
+                        """
+                        UPDATE reservations
+                        SET checked_out = 1, checkout_at = CURRENT_TIMESTAMP
+                        WHERE id = ?
+                        """,
+                        (stay["id"],),
+                    )
+                    st.success("✅ Check-out enregistré.")
+                    st.rerun()
+            else:
+                st.info("Le check-in doit être fait avant le check-out.")
+    else:
+        st.info("Aucun séjour actif à traiter.")
+
+    cancellable = rows(
+        """
+        SELECT r.id, r.client, rm.name AS room_name
+        FROM reservations r
+        JOIN rooms rm ON rm.id = r.room_id
+        WHERE r.status != 'Annulée' AND r.checked_in = 0 AND r.checked_out = 0
+        ORDER BY r.id DESC
+        """
+    )
+    if cancellable:
+        with st.expander("🚫 Annuler une réservation"):
             cancel_labels = {
                 f'R{item["id"]:03d} — {item["client"]} — {item["room_name"]}': item["id"]
-                for item in active
+                for item in cancellable
             }
             cancel_label = st.selectbox(
                 "Réservation à annuler",
                 list(cancel_labels.keys()),
                 key="cancel_reservation",
             )
-            if st.button("Annuler la réservation"):
+            if st.button("🚫 Confirmer l’annulation", key="cancel_button"):
                 run(
                     "UPDATE reservations SET status = 'Annulée' WHERE id = ?",
                     (cancel_labels[cancel_label],),
                 )
                 st.success("Réservation annulée.")
                 st.rerun()
+
+
+with tab_planning:
+    st.subheader("🗓️ Planning visuel des chambres")
+    st.markdown(
+        """
+        <div class="legend">
+            <span class="green">🟢 Libre</span>
+            <span class="orange">🟠 Réservée</span>
+            <span class="purple">🟣 En séjour</span>
+            <span class="red">🛠️ Maintenance</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    c1, c2 = st.columns([2, 1])
+    with c1:
+        planning_start = st.date_input(
+            "Début du planning",
+            value=date.today(),
+            key="planning_start",
+        )
+    with c2:
+        planning_days = st.selectbox(
+            "Période",
+            [7, 14, 21],
+            index=1,
+            format_func=lambda value: f"{value} jours",
+            key="planning_days",
+        )
+
+    st.dataframe(
+        planning_view(planning_start, planning_days),
+        use_container_width=True,
+        hide_index=True,
+        height=320,
+    )
+    st.caption(
+        "🟣 = client présent • 🟠 = réservation à venir • 🟢 = chambre libre"
+    )
+
+
+with tab_clients:
+    st.subheader("👥 Fichier clients")
+    clients = client_summary()
+
+    if clients:
+        c1, c2, c3 = st.columns(3)
+        c1.metric("👥 Clients", len(clients))
+        c2.metric(
+            "🔁 Clients revenus",
+            sum(1 for item in clients if item["Séjours"] > 1),
+        )
+        c3.metric(
+            "🏨 Séjours enregistrés",
+            sum(item["Séjours"] for item in clients),
+        )
+
+        client_search = st.text_input(
+            "🔎 Rechercher un client",
+            placeholder="Nom ou téléphone",
+            key="client_search",
+        )
+
+        filtered_clients = clients
+        if client_search.strip():
+            needle = client_search.strip().lower()
+            filtered_clients = [
+                item
+                for item in clients
+                if needle in item["Client"].lower()
+                or needle in item["Téléphone"].lower()
+            ]
+
+        st.dataframe(
+            filtered_clients,
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        st.markdown("#### 📚 Historique d’un client")
+        client_labels = {
+            f'{item["Client"]} — {item["Téléphone"]}': item
+            for item in clients
+        }
+        client_label = st.selectbox(
+            "Client",
+            list(client_labels.keys()),
+            key="client_history_select",
+        )
+        selected_client = client_labels[client_label]
+
+        client_history = rows(
+            """
+            SELECT r.id, r.arrival, r.departure, r.total, r.status,
+                   r.checked_in, r.checked_out, rm.name AS room_name
+            FROM reservations r
+            JOIN rooms rm ON rm.id = r.room_id
+            WHERE r.client = ? AND COALESCE(r.phone, '') = ?
+            ORDER BY r.arrival DESC
+            """,
+            (
+                selected_client["Client"],
+                "" if selected_client["Téléphone"] == "-" else selected_client["Téléphone"],
+            ),
+        )
+
+        history_display = []
+        for item in client_history:
+            paid = paid_for(item["id"])
+            history_display.append(
+                {
+                    "Réservation": f'R{item["id"]:03d}',
+                    "Chambre": item["room_name"],
+                    "Arrivée": item["arrival"],
+                    "Départ": item["departure"],
+                    "Total": format_ar(item["total"]),
+                    "Payé": format_ar(paid),
+                    "Reste": format_ar(max(int(item["total"]) - paid, 0)),
+                    "Statut": (
+                        "🔵 Terminé"
+                        if item["checked_out"]
+                        else "🟣 En séjour"
+                        if item["checked_in"]
+                        else item["status"]
+                    ),
+                }
+            )
+
+        st.dataframe(
+            history_display,
+            use_container_width=True,
+            hide_index=True,
+        )
     else:
-        st.info("Aucune réservation enregistrée.")
+        st.info("Aucun client enregistré pour le moment.")
+
 
 with tab_payments:
     st.subheader("💰 Enregistrer un paiement")
