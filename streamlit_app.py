@@ -1,6 +1,640 @@
+import sqlite3
+from datetime import date, timedelta
+
 import streamlit as st
 
-st.title("🎈 My new app")
-st.write(
-    "Let's start building! For help and inspiration, head over to [docs.streamlit.io](https://docs.streamlit.io/)."
+DB_PATH = "gesthotel.db"
+
+st.set_page_config(
+    page_title="GestHotel Pro",
+    page_icon="🏨",
+    layout="wide",
+    initial_sidebar_state="collapsed",
 )
+
+st.markdown(
+    """
+    <style>
+        .block-container {padding-top: 1.4rem; padding-bottom: 3rem;}
+        h1 {margin-bottom: .15rem;}
+        .subtitle {opacity: .72; margin-bottom: 1rem;}
+        [data-testid="stMetric"] {
+            border: 1px solid rgba(128,128,128,.22);
+            border-radius: 16px;
+            padding: 14px 16px;
+            background: rgba(128,128,128,.05);
+        }
+        div[data-testid="stForm"] {
+            border: 1px solid rgba(128,128,128,.20);
+            border-radius: 16px;
+            padding: 18px;
+        }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+
+def db():
+    connection = sqlite3.connect(DB_PATH, check_same_thread=False)
+    connection.row_factory = sqlite3.Row
+    connection.execute("PRAGMA foreign_keys = ON")
+    return connection
+
+
+def init_db():
+    with db() as con:
+        con.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS rooms (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                nightly_rate INTEGER NOT NULL DEFAULT 0,
+                maintenance INTEGER NOT NULL DEFAULT 0
+            );
+
+            CREATE TABLE IF NOT EXISTS reservations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                room_id INTEGER NOT NULL,
+                client TEXT NOT NULL,
+                phone TEXT DEFAULT '',
+                arrival TEXT NOT NULL,
+                departure TEXT NOT NULL,
+                nightly_rate INTEGER NOT NULL,
+                total INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'Confirmée',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(room_id) REFERENCES rooms(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS payments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                reservation_id INTEGER NOT NULL,
+                payment_date TEXT NOT NULL,
+                amount INTEGER NOT NULL,
+                method TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(reservation_id) REFERENCES reservations(id)
+            );
+            """
+        )
+
+        if con.execute("SELECT COUNT(*) FROM rooms").fetchone()[0] == 0:
+            con.executemany(
+                "INSERT INTO rooms(name, nightly_rate) VALUES (?, ?)",
+                [
+                    ("Chambre 101", 150000),
+                    ("Chambre 102", 120000),
+                    ("Chambre 103", 180000),
+                ],
+            )
+        con.commit()
+
+
+def rows(query, params=()):
+    with db() as con:
+        return [dict(r) for r in con.execute(query, params).fetchall()]
+
+
+def one(query, params=()):
+    with db() as con:
+        r = con.execute(query, params).fetchone()
+        return dict(r) if r else None
+
+
+def run(query, params=()):
+    with db() as con:
+        con.execute(query, params)
+        con.commit()
+
+
+def format_ar(value):
+    return f"{int(value or 0):,} Ar".replace(",", " ")
+
+
+def room_status(room_id, maintenance):
+    if maintenance:
+        return "🛠️ Maintenance"
+
+    today = date.today().isoformat()
+
+    current = one(
+        """
+        SELECT 1 FROM reservations
+        WHERE room_id = ?
+          AND status != 'Annulée'
+          AND arrival <= ?
+          AND departure > ?
+        LIMIT 1
+        """,
+        (room_id, today, today),
+    )
+    if current:
+        return "🔴 Occupée"
+
+    future = one(
+        """
+        SELECT 1 FROM reservations
+        WHERE room_id = ?
+          AND status != 'Annulée'
+          AND arrival > ?
+        LIMIT 1
+        """,
+        (room_id, today),
+    )
+    if future:
+        return "🟠 Réservée"
+
+    return "🟢 Libre"
+
+
+def room_view():
+    data = []
+    for room in rows("SELECT * FROM rooms ORDER BY name"):
+        data.append(
+            {
+                "Chambre": room["name"],
+                "Tarif / nuit": format_ar(room["nightly_rate"]),
+                "Statut": room_status(room["id"], room["maintenance"]),
+            }
+        )
+    return data
+
+
+def reservation_conflict(room_id, arrival, departure):
+    return one(
+        """
+        SELECT 1 FROM reservations
+        WHERE room_id = ?
+          AND status != 'Annulée'
+          AND arrival < ?
+          AND departure > ?
+        LIMIT 1
+        """,
+        (room_id, departure.isoformat(), arrival.isoformat()),
+    ) is not None
+
+
+def paid_for(reservation_id):
+    result = one(
+        "SELECT COALESCE(SUM(amount), 0) AS total FROM payments WHERE reservation_id = ?",
+        (reservation_id,),
+    )
+    return int(result["total"] if result else 0)
+
+
+def reservation_view():
+    result = []
+    data = rows(
+        """
+        SELECT r.*, rm.name AS room_name
+        FROM reservations r
+        JOIN rooms rm ON rm.id = r.room_id
+        ORDER BY r.arrival DESC, r.id DESC
+        """
+    )
+    for item in data:
+        paid = paid_for(item["id"])
+        remaining = max(int(item["total"]) - paid, 0)
+
+        if item["status"] == "Annulée":
+            payment_status = "⚪ Annulée"
+        elif paid == 0:
+            payment_status = "🔴 Non payé"
+        elif remaining > 0:
+            payment_status = "🟠 Partiel"
+        else:
+            payment_status = "🟢 Payé"
+
+        nights = (
+            date.fromisoformat(item["departure"])
+            - date.fromisoformat(item["arrival"])
+        ).days
+
+        result.append(
+            {
+                "ID": f'R{item["id"]:03d}',
+                "Chambre": item["room_name"],
+                "Client": item["client"],
+                "Téléphone": item["phone"] or "-",
+                "Arrivée": item["arrival"],
+                "Départ": item["departure"],
+                "Nuits": nights,
+                "Total": format_ar(item["total"]),
+                "Payé": format_ar(paid),
+                "Reste": format_ar(remaining),
+                "Paiement": payment_status,
+                "Statut": item["status"],
+            }
+        )
+    return result
+
+
+def payable_reservations():
+    result = []
+    for item in rows(
+        """
+        SELECT r.*, rm.name AS room_name
+        FROM reservations r
+        JOIN rooms rm ON rm.id = r.room_id
+        WHERE r.status != 'Annulée'
+        ORDER BY r.id DESC
+        """
+    ):
+        paid = paid_for(item["id"])
+        remaining = max(int(item["total"]) - paid, 0)
+        if remaining > 0:
+            item["remaining"] = remaining
+            result.append(item)
+    return result
+
+
+def revenue_totals():
+    payments = rows("SELECT payment_date, amount FROM payments")
+    today = date.today()
+    start_week = today - timedelta(days=today.weekday())
+    start_month = today.replace(day=1)
+
+    day_total = 0
+    week_total = 0
+    month_total = 0
+    all_total = 0
+
+    for payment in payments:
+        pdate = date.fromisoformat(payment["payment_date"])
+        amount = int(payment["amount"])
+        all_total += amount
+        if pdate == today:
+            day_total += amount
+        if pdate >= start_week:
+            week_total += amount
+        if pdate >= start_month:
+            month_total += amount
+
+    return day_total, week_total, month_total, all_total
+
+
+def outstanding_total():
+    total = 0
+    for item in rows("SELECT id, total, status FROM reservations"):
+        if item["status"] == "Annulée":
+            continue
+        total += max(int(item["total"]) - paid_for(item["id"]), 0)
+    return total
+
+
+init_db()
+
+st.title("🏨 GestHotel Pro")
+st.markdown(
+    '<div class="subtitle">Gestion des chambres, réservations, paiements et chiffre d’affaires.</div>',
+    unsafe_allow_html=True,
+)
+
+tab_dashboard, tab_rooms, tab_reservations, tab_payments = st.tabs(
+    ["📊 Tableau de bord", "🛏️ Chambres", "📅 Réservations", "💰 Paiements"]
+)
+
+with tab_dashboard:
+    room_data = rows("SELECT * FROM rooms ORDER BY name")
+    statuses = [
+        room_status(room["id"], room["maintenance"])
+        for room in room_data
+    ]
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("🏨 Chambres", len(room_data))
+    c2.metric("🟢 Libres", statuses.count("🟢 Libre"))
+    c3.metric("🔴 Occupées", statuses.count("🔴 Occupée"))
+    c4.metric("🟠 Réservées", statuses.count("🟠 Réservée"))
+
+    st.markdown("---")
+    st.subheader("💰 Chiffre d’affaires encaissé")
+    day_total, week_total, month_total, all_total = revenue_totals()
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Aujourd’hui", format_ar(day_total))
+    c2.metric("Cette semaine", format_ar(week_total))
+    c3.metric("Ce mois", format_ar(month_total))
+    c4.metric("Total encaissé", format_ar(all_total))
+
+    st.metric("⏳ Reste à encaisser", format_ar(outstanding_total()))
+
+    st.markdown("---")
+    st.subheader("🛏️ État des chambres")
+    st.dataframe(room_view(), use_container_width=True, hide_index=True)
+
+with tab_rooms:
+    st.subheader("🛏️ Gestion des chambres")
+    st.dataframe(room_view(), use_container_width=True, hide_index=True)
+
+    st.markdown("---")
+    left, right = st.columns(2)
+
+    with left:
+        st.markdown("#### ➕ Ajouter une chambre")
+        with st.form("add_room", clear_on_submit=True):
+            room_name = st.text_input(
+                "Nom / numéro de chambre",
+                placeholder="Ex. Chambre 104",
+            )
+            nightly_rate = st.number_input(
+                "Tarif par nuit (Ar)",
+                min_value=0,
+                value=100000,
+                step=5000,
+            )
+            add_room = st.form_submit_button(
+                "Ajouter la chambre",
+                type="primary",
+                use_container_width=True,
+            )
+
+        if add_room:
+            clean_name = room_name.strip()
+            if not clean_name:
+                st.error("Veuillez saisir un nom de chambre.")
+            elif one(
+                "SELECT id FROM rooms WHERE lower(name) = lower(?)",
+                (clean_name,),
+            ):
+                st.warning("Cette chambre existe déjà.")
+            else:
+                run(
+                    "INSERT INTO rooms(name, nightly_rate) VALUES (?, ?)",
+                    (clean_name, int(nightly_rate)),
+                )
+                st.success(f"✅ {clean_name} ajoutée.")
+                st.rerun()
+
+    with right:
+        st.markdown("#### 🛠️ Maintenance")
+        room_options = rows(
+            "SELECT id, name, maintenance FROM rooms ORDER BY name"
+        )
+        if room_options:
+            labels = {
+                f'{room["name"]}{" — maintenance" if room["maintenance"] else ""}': room
+                for room in room_options
+            }
+            selected_label = st.selectbox(
+                "Chambre",
+                list(labels.keys()),
+                key="maintenance_room",
+            )
+            selected_room = labels[selected_label]
+
+            if selected_room["maintenance"]:
+                if st.button("✅ Remettre disponible", use_container_width=True):
+                    run(
+                        "UPDATE rooms SET maintenance = 0 WHERE id = ?",
+                        (selected_room["id"],),
+                    )
+                    st.rerun()
+            else:
+                if st.button("🛠️ Mettre en maintenance", use_container_width=True):
+                    run(
+                        "UPDATE rooms SET maintenance = 1 WHERE id = ?",
+                        (selected_room["id"],),
+                    )
+                    st.rerun()
+
+with tab_reservations:
+    st.subheader("📅 Nouvelle réservation")
+
+    available_rooms = rows(
+        """
+        SELECT id, name, nightly_rate
+        FROM rooms
+        WHERE maintenance = 0
+        ORDER BY name
+        """
+    )
+
+    if not available_rooms:
+        st.warning("Aucune chambre disponible : toutes sont en maintenance.")
+    else:
+        room_labels = {
+            f'{room["name"]} — {format_ar(room["nightly_rate"])} / nuit': room
+            for room in available_rooms
+        }
+        selected_room_label = st.selectbox(
+            "Chambre",
+            list(room_labels.keys()),
+            key="reservation_room",
+        )
+        selected_room = room_labels[selected_room_label]
+
+        with st.form("new_reservation", clear_on_submit=True):
+            client = st.text_input("Nom du client")
+            phone = st.text_input("Téléphone")
+
+            c1, c2 = st.columns(2)
+            with c1:
+                arrival = st.date_input("Date d’arrivée", value=date.today())
+            with c2:
+                departure = st.date_input(
+                    "Date de départ",
+                    value=date.today() + timedelta(days=1),
+                )
+
+            nightly_rate = st.number_input(
+                "Prix par nuit (Ar)",
+                min_value=0,
+                value=int(selected_room["nightly_rate"]),
+                step=5000,
+            )
+            status = st.selectbox("Statut", ["Confirmée", "En attente"])
+            save_reservation = st.form_submit_button(
+                "✅ Enregistrer la réservation",
+                type="primary",
+                use_container_width=True,
+            )
+
+        if save_reservation:
+            clean_client = client.strip()
+            if not clean_client:
+                st.error("Veuillez saisir le nom du client.")
+            elif departure <= arrival:
+                st.error("La date de départ doit être après la date d’arrivée.")
+            elif reservation_conflict(selected_room["id"], arrival, departure):
+                st.error(
+                    "❌ Cette chambre est déjà réservée sur tout ou partie de ces dates."
+                )
+            else:
+                nights = (departure - arrival).days
+                total = nights * int(nightly_rate)
+                run(
+                    """
+                    INSERT INTO reservations(
+                        room_id, client, phone, arrival, departure,
+                        nightly_rate, total, status
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        selected_room["id"],
+                        clean_client,
+                        phone.strip(),
+                        arrival.isoformat(),
+                        departure.isoformat(),
+                        int(nightly_rate),
+                        int(total),
+                        status,
+                    ),
+                )
+                st.success(
+                    f"✅ Réservation enregistrée : {nights} nuit(s), total {format_ar(total)}."
+                )
+                st.rerun()
+
+    st.markdown("---")
+    st.subheader("📋 Réservations")
+    reservation_data = reservation_view()
+
+    if reservation_data:
+        st.dataframe(
+            reservation_data,
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        active = rows(
+            """
+            SELECT r.id, r.client, rm.name AS room_name
+            FROM reservations r
+            JOIN rooms rm ON rm.id = r.room_id
+            WHERE r.status != 'Annulée'
+            ORDER BY r.id DESC
+            """
+        )
+        if active:
+            st.markdown("#### 🚫 Annuler une réservation")
+            cancel_labels = {
+                f'R{item["id"]:03d} — {item["client"]} — {item["room_name"]}': item["id"]
+                for item in active
+            }
+            cancel_label = st.selectbox(
+                "Réservation à annuler",
+                list(cancel_labels.keys()),
+                key="cancel_reservation",
+            )
+            if st.button("Annuler la réservation"):
+                run(
+                    "UPDATE reservations SET status = 'Annulée' WHERE id = ?",
+                    (cancel_labels[cancel_label],),
+                )
+                st.success("Réservation annulée.")
+                st.rerun()
+    else:
+        st.info("Aucune réservation enregistrée.")
+
+with tab_payments:
+    st.subheader("💰 Enregistrer un paiement")
+    payable = payable_reservations()
+
+    if not payable:
+        st.info("Aucun paiement en attente.")
+    else:
+        payment_labels = {
+            (
+                f'R{item["id"]:03d} — {item["client"]} — {item["room_name"]}'
+                f' — reste {format_ar(item["remaining"])}'
+            ): item
+            for item in payable
+        }
+        payment_label = st.selectbox(
+            "Réservation",
+            list(payment_labels.keys()),
+            key="payment_reservation",
+        )
+        selected = payment_labels[payment_label]
+
+        st.info(f'Reste à payer : **{format_ar(selected["remaining"])}**')
+
+        with st.form("new_payment", clear_on_submit=True):
+            amount = st.number_input(
+                "Montant encaissé (Ar)",
+                min_value=0,
+                max_value=int(selected["remaining"]),
+                value=int(selected["remaining"]),
+                step=5000,
+            )
+            method = st.selectbox(
+                "Mode de paiement",
+                [
+                    "Espèces",
+                    "MVola",
+                    "Orange Money",
+                    "Airtel Money",
+                    "Carte bancaire",
+                    "Virement",
+                    "Autre",
+                ],
+            )
+            payment_date = st.date_input(
+                "Date du paiement",
+                value=date.today(),
+            )
+            save_payment = st.form_submit_button(
+                "💰 Enregistrer le paiement",
+                type="primary",
+                use_container_width=True,
+            )
+
+        if save_payment:
+            if amount <= 0:
+                st.error("Le montant doit être supérieur à 0.")
+            else:
+                run(
+                    """
+                    INSERT INTO payments(
+                        reservation_id, payment_date, amount, method
+                    )
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (
+                        selected["id"],
+                        payment_date.isoformat(),
+                        int(amount),
+                        method,
+                    ),
+                )
+                st.success("✅ Paiement enregistré.")
+                st.rerun()
+
+    st.markdown("---")
+    st.subheader("📒 Historique des paiements")
+    history = rows(
+        """
+        SELECT
+            p.payment_date AS payment_date,
+            p.reservation_id AS reservation_id,
+            r.client AS client,
+            p.amount AS amount,
+            p.method AS method
+        FROM payments p
+        JOIN reservations r ON r.id = p.reservation_id
+        ORDER BY p.payment_date DESC, p.id DESC
+        """
+    )
+
+    display_history = [
+        {
+            "Date": item["payment_date"],
+            "Réservation": f'R{item["reservation_id"]:03d}',
+            "Client": item["client"],
+            "Montant": format_ar(item["amount"]),
+            "Mode": item["method"],
+        }
+        for item in history
+    ]
+
+    if display_history:
+        st.dataframe(
+            display_history,
+            use_container_width=True,
+            hide_index=True,
+        )
+    else:
+        st.info("Aucun paiement enregistré.")
