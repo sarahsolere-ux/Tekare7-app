@@ -1,5 +1,5 @@
 import sqlite3
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime
 
 import streamlit as st
 
@@ -87,6 +87,31 @@ st.markdown(
         div[data-baseweb="tab-list"] button:nth-child(5) {background: rgba(236,72,153,.18);}
         div[data-baseweb="tab-list"] button:nth-child(6) {background: rgba(59,130,246,.18);}
         div[data-baseweb="tab-list"] button:nth-child(7) {background: rgba(249,115,22,.18);}
+        div[data-baseweb="tab-list"] button:nth-child(8) {background: rgba(6,182,212,.20);}
+
+        .product-card {
+            min-height: 150px;
+            border-radius: 22px;
+            padding: 18px;
+            margin-bottom: 12px;
+            color: white;
+            background: linear-gradient(145deg, #ff6b6b 0%, #f59e0b 45%, #7c3aed 100%);
+            box-shadow: 0 12px 28px rgba(124,58,237,.18);
+        }
+
+        .product-card .emoji {font-size: 2.2rem;}
+        .product-card .name {font-size: 1.15rem; font-weight: 850; margin-top: 5px;}
+        .product-card .price {font-size: 1.05rem; font-weight: 800; margin-top: 8px;}
+        .product-card .stock {font-size: .86rem; opacity: .92; margin-top: 4px;}
+
+        .bar-banner {
+            padding: 18px 22px;
+            border-radius: 20px;
+            margin: 4px 0 16px 0;
+            color: white;
+            background: linear-gradient(110deg, #06b6d4, #10b981, #f59e0b);
+            box-shadow: 0 12px 30px rgba(6,182,212,.18);
+        }
 
         div.stButton > button,
         div[data-testid="stFormSubmitButton"] > button {
@@ -193,6 +218,33 @@ def init_db():
                 payment_method TEXT NOT NULL DEFAULT 'Espèces',
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
+
+            CREATE TABLE IF NOT EXISTS bar_products (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                category TEXT NOT NULL,
+                emoji TEXT NOT NULL DEFAULT '🥤',
+                price INTEGER NOT NULL,
+                stock INTEGER NOT NULL DEFAULT 0,
+                active INTEGER NOT NULL DEFAULT 1
+            );
+
+            CREATE TABLE IF NOT EXISTS bar_sales (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ticket TEXT NOT NULL,
+                sale_date TEXT NOT NULL,
+                product_id INTEGER NOT NULL,
+                quantity INTEGER NOT NULL,
+                unit_price INTEGER NOT NULL,
+                total INTEGER NOT NULL,
+                payment_method TEXT NOT NULL,
+                room_id INTEGER,
+                client TEXT DEFAULT '',
+                paid INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(product_id) REFERENCES bar_products(id),
+                FOREIGN KEY(room_id) REFERENCES rooms(id)
+            );
             """
         )
 
@@ -223,6 +275,22 @@ def init_db():
                     ("Chambre 101", 150000),
                     ("Chambre 102", 120000),
                     ("Chambre 103", 180000),
+                ],
+            )
+
+        if con.execute("SELECT COUNT(*) FROM bar_products").fetchone()[0] == 0:
+            con.executemany(
+                """
+                INSERT INTO bar_products(name, category, emoji, price, stock)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                [
+                    ("Coca-Cola 50 cl", "Sodas", "🥤", 6000, 24),
+                    ("Limonade 50 cl", "Sodas", "🍋", 5000, 18),
+                    ("Eau minérale 1 L", "Eaux", "💧", 3000, 30),
+                    ("Bière 65 cl", "Bières", "🍺", 8000, 20),
+                    ("Jus naturel mangue", "Jus naturels", "🥭", 7000, 12),
+                    ("Jus naturel ananas", "Jus naturels", "🍍", 7000, 12),
                 ],
             )
         con.commit()
@@ -586,13 +654,119 @@ def client_summary():
     return sorted(result, key=lambda item: item["Dernier départ"], reverse=True)
 
 
+def bar_totals():
+    sales = rows(
+        "SELECT sale_date, total, paid FROM bar_sales"
+    )
+    today = date.today()
+    start_month = today.replace(day=1)
+
+    today_total = 0
+    month_total = 0
+    all_total = 0
+    pending_total = 0
+
+    for sale in sales:
+        amount = int(sale["total"])
+        sale_day = date.fromisoformat(sale["sale_date"])
+        if sale["paid"]:
+            all_total += amount
+            if sale_day == today:
+                today_total += amount
+            if sale_day >= start_month:
+                month_total += amount
+        else:
+            pending_total += amount
+
+    return today_total, month_total, all_total, pending_total
+
+
+def active_guest_for_room(room_id):
+    today = date.today().isoformat()
+    guest = one(
+        """
+        SELECT client
+        FROM reservations
+        WHERE room_id = ?
+          AND status != 'Annulée'
+          AND checked_out = 0
+          AND (
+              checked_in = 1
+              OR (arrival <= ? AND departure > ?)
+          )
+        ORDER BY checked_in DESC, arrival
+        LIMIT 1
+        """,
+        (room_id, today, today),
+    )
+    return guest["client"] if guest else ""
+
+
+def save_bar_ticket(cart, payment_method, room_id=None, client=""):
+    ticket = f'BAR-{datetime.now().strftime("%Y%m%d-%H%M%S-%f")}'
+    paid = 0 if payment_method == "Ajouter à la chambre" else 1
+
+    with db() as con:
+        for line in cart:
+            product = con.execute(
+                "SELECT id, name, price, stock FROM bar_products WHERE id = ?",
+                (line["product_id"],),
+            ).fetchone()
+
+            if not product:
+                raise ValueError("Un produit du panier n’existe plus.")
+
+            if int(product["stock"]) < int(line["quantity"]):
+                raise ValueError(
+                    f'Stock insuffisant pour {product["name"]}.'
+                )
+
+            quantity = int(line["quantity"])
+            unit_price = int(product["price"])
+            total = quantity * unit_price
+
+            con.execute(
+                """
+                INSERT INTO bar_sales(
+                    ticket, sale_date, product_id, quantity, unit_price, total,
+                    payment_method, room_id, client, paid
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    ticket,
+                    date.today().isoformat(),
+                    product["id"],
+                    quantity,
+                    unit_price,
+                    total,
+                    payment_method,
+                    room_id,
+                    client.strip(),
+                    paid,
+                ),
+            )
+
+            con.execute(
+                "UPDATE bar_products SET stock = stock - ? WHERE id = ?",
+                (quantity, product["id"]),
+            )
+
+        con.commit()
+
+    return ticket
+
+
 init_db()
+
+if "bar_cart" not in st.session_state:
+    st.session_state.bar_cart = []
 
 st.markdown(
     """
     <div class="hero">
         <h1>🏨 GestHotel Pro</h1>
-        <p>Réservations • chambres • clients • check-in / check-out • paiements • dépenses</p>
+        <p>Réservations • chambres • clients • check-in / check-out • bar • paiements • dépenses</p>
     </div>
     """,
     unsafe_allow_html=True,
@@ -604,6 +778,7 @@ st.markdown(
     tab_reservations,
     tab_planning,
     tab_clients,
+    tab_bar,
     tab_payments,
     tab_expenses,
 ) = st.tabs(
@@ -613,6 +788,7 @@ st.markdown(
         "📅 Réservations",
         "🗓️ Planning",
         "👥 Clients",
+        "🍹 Bar",
         "💰 Paiements",
         "🧾 Dépenses",
     ]
@@ -650,6 +826,12 @@ with tab_dashboard:
     c1.metric("Total encaissé", format_ar(all_total))
     c2.metric("Total dépenses", format_ar(expense_all))
     c3.metric("⏳ Reste à encaisser", format_ar(outstanding_total()))
+
+    bar_today, bar_month, bar_all, bar_pending = bar_totals()
+    c1, c2, c3 = st.columns(3)
+    c1.metric("🍹 Bar aujourd’hui", format_ar(bar_today))
+    c2.metric("🍹 Bar ce mois", format_ar(bar_month))
+    c3.metric("🧾 Notes bar en chambre", format_ar(bar_pending))
 
     st.markdown("---")
     st.subheader("📍 Aujourd’hui")
@@ -945,7 +1127,7 @@ with tab_reservations:
     st.subheader("🚪 Check-in / Check-out")
     operation_rows = rows(
         """
-        SELECT r.id, r.client, r.arrival, r.departure, r.checked_in, r.checked_out,
+        SELECT r.id, r.room_id, r.client, r.arrival, r.departure, r.checked_in, r.checked_out,
                rm.name AS room_name
         FROM reservations r
         JOIN rooms rm ON rm.id = r.room_id
@@ -998,16 +1180,31 @@ with tab_reservations:
                     use_container_width=True,
                     key="checkout_button",
                 ):
-                    run(
+                    pending_bar = one(
                         """
-                        UPDATE reservations
-                        SET checked_out = 1, checkout_at = CURRENT_TIMESTAMP
-                        WHERE id = ?
+                        SELECT COALESCE(SUM(total), 0) AS total
+                        FROM bar_sales
+                        WHERE room_id = ? AND paid = 0
                         """,
-                        (stay["id"],),
+                        (stay["room_id"],),
                     )
-                    st.success("✅ Check-out enregistré.")
-                    st.rerun()
+                    pending_amount = int(pending_bar["total"] if pending_bar else 0)
+
+                    if pending_amount > 0:
+                        st.error(
+                            f"🍹 Note bar à régler avant le départ : {format_ar(pending_amount)}"
+                        )
+                    else:
+                        run(
+                            """
+                            UPDATE reservations
+                            SET checked_out = 1, checkout_at = CURRENT_TIMESTAMP
+                            WHERE id = ?
+                            """,
+                            (stay["id"],),
+                        )
+                        st.success("✅ Check-out enregistré.")
+                        st.rerun()
             else:
                 st.info("Le check-in doit être fait avant le check-out.")
     else:
@@ -1177,6 +1374,385 @@ with tab_clients:
         )
     else:
         st.info("Aucun client enregistré pour le moment.")
+
+
+with tab_bar:
+    st.markdown(
+        """
+        <div class="bar-banner">
+            <h2 style="margin:0;color:white;-webkit-text-fill-color:white;">🍹 Le Bar de GestHotel</h2>
+            <p style="margin:6px 0 0 0;">Commandes comptoir • consommation en chambre • stock • encaissements</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    bar_today, bar_month, bar_all, bar_pending = bar_totals()
+    b1, b2, b3, b4 = st.columns(4)
+    b1.metric("💵 Aujourd’hui", format_ar(bar_today))
+    b2.metric("📅 Ce mois", format_ar(bar_month))
+    b3.metric("🏆 Total encaissé", format_ar(bar_all))
+    b4.metric("🧾 À régler en chambre", format_ar(bar_pending))
+
+    st.markdown("### 🥤 Carte des boissons")
+    products = rows(
+        """
+        SELECT id, name, category, emoji, price, stock
+        FROM bar_products
+        WHERE active = 1
+        ORDER BY category, name
+        """
+    )
+
+    product_columns = st.columns(3)
+    for index, product in enumerate(products):
+        with product_columns[index % 3]:
+            stock_text = (
+                "🔴 Stock faible"
+                if int(product["stock"]) <= 5
+                else f'📦 Stock : {product["stock"]}'
+            )
+            st.markdown(
+                f"""
+                <div class="product-card">
+                    <div class="emoji">{product["emoji"]}</div>
+                    <div class="name">{product["name"]}</div>
+                    <div>{product["category"]}</div>
+                    <div class="price">{format_ar(product["price"])}</div>
+                    <div class="stock">{stock_text}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+    st.markdown("---")
+    st.subheader("🛒 Nouvelle commande")
+
+    available_products = [
+        product for product in products if int(product["stock"]) > 0
+    ]
+
+    if available_products:
+        product_labels = {
+            f'{item["emoji"]} {item["name"]} — {format_ar(item["price"])} — stock {item["stock"]}': item
+            for item in available_products
+        }
+
+        c1, c2 = st.columns([3, 1])
+        with c1:
+            selected_product_label = st.selectbox(
+                "Boisson",
+                list(product_labels.keys()),
+                key="bar_product_select",
+            )
+            selected_product = product_labels[selected_product_label]
+        with c2:
+            bar_quantity = st.number_input(
+                "Quantité",
+                min_value=1,
+                max_value=max(1, int(selected_product["stock"])),
+                value=1,
+                step=1,
+                key="bar_quantity",
+            )
+
+        if st.button("➕ Ajouter au panier", key="bar_add_cart"):
+            existing = next(
+                (
+                    item
+                    for item in st.session_state.bar_cart
+                    if item["product_id"] == selected_product["id"]
+                ),
+                None,
+            )
+
+            if existing:
+                new_quantity = existing["quantity"] + int(bar_quantity)
+                if new_quantity > int(selected_product["stock"]):
+                    st.warning("Quantité supérieure au stock disponible.")
+                else:
+                    existing["quantity"] = new_quantity
+            else:
+                st.session_state.bar_cart.append(
+                    {
+                        "product_id": selected_product["id"],
+                        "name": selected_product["name"],
+                        "emoji": selected_product["emoji"],
+                        "price": int(selected_product["price"]),
+                        "quantity": int(bar_quantity),
+                    }
+                )
+            st.rerun()
+    else:
+        st.warning("Aucune boisson en stock.")
+
+    if st.session_state.bar_cart:
+        st.markdown("#### 🧺 Panier")
+        cart_display = []
+        cart_total = 0
+
+        for item in st.session_state.bar_cart:
+            subtotal = int(item["price"]) * int(item["quantity"])
+            cart_total += subtotal
+            cart_display.append(
+                {
+                    "Produit": f'{item["emoji"]} {item["name"]}',
+                    "Qté": item["quantity"],
+                    "Prix": format_ar(item["price"]),
+                    "Sous-total": format_ar(subtotal),
+                }
+            )
+
+        st.dataframe(
+            cart_display,
+            use_container_width=True,
+            hide_index=True,
+        )
+        st.metric("🧾 Total de la commande", format_ar(cart_total))
+
+        if st.button("🗑️ Vider le panier", key="bar_clear_cart"):
+            st.session_state.bar_cart = []
+            st.rerun()
+
+        st.markdown("#### 💳 Encaisser / mettre sur la chambre")
+        destination = st.radio(
+            "Destination",
+            ["Comptoir", "Chambre"],
+            horizontal=True,
+            key="bar_destination",
+        )
+
+        room_id = None
+        guest_name = ""
+
+        if destination == "Chambre":
+            occupied_rooms = [
+                room
+                for room in rows("SELECT id, name, maintenance FROM rooms ORDER BY name")
+                if room_status(room["id"], room["maintenance"]) == "🔴 Occupée"
+            ]
+
+            if occupied_rooms:
+                room_labels = {
+                    room["name"]: room for room in occupied_rooms
+                }
+                selected_room_name = st.selectbox(
+                    "Chambre",
+                    list(room_labels.keys()),
+                    key="bar_room_select",
+                )
+                room_id = room_labels[selected_room_name]["id"]
+                guest_name = active_guest_for_room(room_id)
+                if guest_name:
+                    st.info(f"👤 Client : **{guest_name}**")
+            else:
+                st.warning("Aucune chambre occupée actuellement.")
+
+        payment_options = [
+            "Espèces",
+            "MVola",
+            "Orange Money",
+            "Airtel Money",
+            "Carte bancaire",
+        ]
+        if destination == "Chambre":
+            payment_options.append("Ajouter à la chambre")
+
+        bar_payment_method = st.selectbox(
+            "Mode de règlement",
+            payment_options,
+            key="bar_payment_method",
+        )
+
+        manual_client = st.text_input(
+            "Nom du client (facultatif)",
+            value=guest_name,
+            key="bar_client_name",
+        )
+
+        if st.button(
+            "✅ Valider la commande",
+            type="primary",
+            use_container_width=True,
+            key="bar_validate_order",
+        ):
+            if destination == "Chambre" and room_id is None:
+                st.error("Sélectionnez une chambre occupée.")
+            elif bar_payment_method == "Ajouter à la chambre" and room_id is None:
+                st.error("Une note de chambre doit être liée à une chambre.")
+            else:
+                try:
+                    ticket = save_bar_ticket(
+                        st.session_state.bar_cart,
+                        bar_payment_method,
+                        room_id,
+                        manual_client,
+                    )
+                    st.session_state.bar_cart = []
+                    st.success(f"✅ Commande {ticket} enregistrée.")
+                    st.rerun()
+                except ValueError as exc:
+                    st.error(str(exc))
+    else:
+        st.info("Ajoutez une boisson au panier pour créer une commande.")
+
+    st.markdown("---")
+    st.subheader("🧾 Notes bar en attente")
+    pending_tickets = rows(
+        """
+        SELECT
+            bs.ticket,
+            bs.sale_date,
+            rm.name AS room_name,
+            MAX(bs.client) AS client,
+            SUM(bs.total) AS total
+        FROM bar_sales bs
+        LEFT JOIN rooms rm ON rm.id = bs.room_id
+        WHERE bs.paid = 0
+        GROUP BY bs.ticket, bs.sale_date, rm.name
+        ORDER BY MAX(bs.id) DESC
+        """
+    )
+
+    if pending_tickets:
+        st.dataframe(
+            [
+                {
+                    "Ticket": item["ticket"],
+                    "Date": item["sale_date"],
+                    "Chambre": item["room_name"] or "-",
+                    "Client": item["client"] or "-",
+                    "À régler": format_ar(item["total"]),
+                }
+                for item in pending_tickets
+            ],
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        pending_labels = {
+            f'{item["ticket"]} — {item["room_name"] or "Sans chambre"} — {format_ar(item["total"])}': item
+            for item in pending_tickets
+        }
+        pending_label = st.selectbox(
+            "Note à régler",
+            list(pending_labels.keys()),
+            key="bar_pending_select",
+        )
+        pending = pending_labels[pending_label]
+
+        settle_method = st.selectbox(
+            "Paiement de la note",
+            ["Espèces", "MVola", "Orange Money", "Airtel Money", "Carte bancaire"],
+            key="bar_settle_method",
+        )
+
+        if st.button("💰 Régler la note bar", key="bar_settle_button"):
+            with db() as con:
+                con.execute(
+                    """
+                    UPDATE bar_sales
+                    SET paid = 1, payment_method = ?
+                    WHERE ticket = ?
+                    """,
+                    (settle_method, pending["ticket"]),
+                )
+                con.commit()
+            st.success("✅ Note bar réglée.")
+            st.rerun()
+    else:
+        st.success("✅ Aucune note bar en attente.")
+
+    st.markdown("---")
+    st.subheader("📦 Stock du bar")
+    stock_rows = rows(
+        """
+        SELECT id, emoji, name, category, price, stock
+        FROM bar_products
+        WHERE active = 1
+        ORDER BY category, name
+        """
+    )
+    st.dataframe(
+        [
+            {
+                "Produit": f'{item["emoji"]} {item["name"]}',
+                "Catégorie": item["category"],
+                "Prix": format_ar(item["price"]),
+                "Stock": item["stock"],
+                "Alerte": "🔴 Faible" if int(item["stock"]) <= 5 else "🟢 OK",
+            }
+            for item in stock_rows
+        ],
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    with st.expander("➕ Réapprovisionner le stock"):
+        stock_labels = {
+            f'{item["emoji"]} {item["name"]}': item
+            for item in stock_rows
+        }
+        stock_label = st.selectbox(
+            "Produit",
+            list(stock_labels.keys()),
+            key="bar_stock_product",
+        )
+        stock_product = stock_labels[stock_label]
+        added_stock = st.number_input(
+            "Quantité reçue",
+            min_value=1,
+            value=6,
+            step=1,
+            key="bar_stock_qty",
+        )
+        if st.button("📦 Ajouter au stock", key="bar_stock_add"):
+            run(
+                "UPDATE bar_products SET stock = stock + ? WHERE id = ?",
+                (int(added_stock), stock_product["id"]),
+            )
+            st.success("✅ Stock mis à jour.")
+            st.rerun()
+
+    st.markdown("---")
+    st.subheader("📒 Historique des commandes")
+    bar_history = rows(
+        """
+        SELECT
+            bs.ticket,
+            bs.sale_date,
+            rm.name AS room_name,
+            MAX(bs.client) AS client,
+            MAX(bs.payment_method) AS payment_method,
+            MIN(bs.paid) AS paid,
+            SUM(bs.total) AS total
+        FROM bar_sales bs
+        LEFT JOIN rooms rm ON rm.id = bs.room_id
+        GROUP BY bs.ticket, bs.sale_date, rm.name
+        ORDER BY MAX(bs.id) DESC
+        LIMIT 50
+        """
+    )
+
+    if bar_history:
+        st.dataframe(
+            [
+                {
+                    "Ticket": item["ticket"],
+                    "Date": item["sale_date"],
+                    "Destination": item["room_name"] or "Comptoir",
+                    "Client": item["client"] or "-",
+                    "Total": format_ar(item["total"]),
+                    "Règlement": item["payment_method"],
+                    "Statut": "🟢 Payé" if item["paid"] else "🟠 À régler",
+                }
+                for item in bar_history
+            ],
+            use_container_width=True,
+            hide_index=True,
+        )
+    else:
+        st.info("Aucune commande enregistrée.")
 
 
 with tab_payments:
