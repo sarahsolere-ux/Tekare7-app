@@ -5,8 +5,29 @@ import streamlit as st
 
 DB_PATH = "gesthotel.db"
 
+HOTEL_NAME = "Hôtel Palmeria"
+HOTEL_TAGLINE = "Nature • Confort • Authenticité"
+HOTEL_SUBTITLE = "Un séjour authentique au cœur de Madagascar"
+
+HOTEL_HERO_IMAGE = "https://www.fortynine.co.jp/upimg/ho24476116190.jpg"
+
+ROOM_IMAGES = [
+    "https://www.hilton.com/im/en/DPSDHLX/22546376/146979375-desahay-50-o.jpg?ch=2812&cw=5000&gravity=NorthWest&impolicy=crop&rh=675&rw=1200&xposition=0&yposition=0",
+    "https://photos.hotelbeds.com/giata/bigger/09/094335/094335a_hb_ro_001.jpg",
+    "https://cloud.tui.com/pics/hotel/resize%3Afill/aHR0cHM6Ly9waWNzLnR1aS5jb20vcGljcy9waWNzMTYwMHgxMjAwL3R1aS80LzRkZmRjMzdiMjM1YjE3OWQzNjhkM2VlZDYxZjBlZDA2X29jcHByb2QuanBn",
+]
+
+BAR_IMAGES = {
+    "Coca-Cola 50 cl": "https://ocdn.eu/pulscms-transforms/1/R3mk9kpTURBXy9hNDhiMDExYzQwZDU4NDgwZTRjNGJlNzMwZmFhNjYxMC5qcGeRkwLNAcIA3gABoTAB",
+    "Limonade 50 cl": "https://amfood.ch/1127-large_default/lemonsoda-24200ml-6-er-pack.jpg",
+    "Eau minérale 1 L": "https://www.gettyimages.com/gi-resources/images/500px/983794168.jpg",
+    "Bière 65 cl": "https://www.saveursupreme.com/572-large_default/pivo-thb-z-madagaskaru-54.jpg",
+    "Jus naturel mangue": "https://images.rawpixel.com/image_800/cHJpdmF0ZS9sci9pbWFnZXMvd2Vic2l0ZS8yMDI0LTA4L3Jhd3BpeGVsb2ZmaWNlMl9mcm9udF92aWV3X3Bob3RvX29mX2FfcmVhbF9tYW5nb19qdWljZV90YWxsX2dsYV80ZTU0NDQ5Ny1hODBhLTRkMWYtYTk5ZS1jNjgwMzRlOWRmNWNfMS5qcGc.jpg",
+    "Jus naturel ananas": "https://media.gettyimages.com/id/1147287052/photo/pineapple-juice.jpg?s=612x612&w=0&k=20&c=placeholder",
+}
+
 st.set_page_config(
-    page_title="GestHotel Pro",
+    page_title="Hôtel Palmeria",
     page_icon="🏨",
     layout="wide",
     initial_sidebar_state="collapsed",
@@ -17,9 +38,9 @@ st.markdown(
     <style>
         .stApp {
             background:
-                radial-gradient(circle at 5% 5%, rgba(255, 77, 109, .18), transparent 28%),
-                radial-gradient(circle at 95% 8%, rgba(0, 210, 255, .16), transparent 26%),
-                radial-gradient(circle at 80% 92%, rgba(124, 58, 237, .16), transparent 28%);
+                radial-gradient(circle at 5% 5%, rgba(76, 116, 86, .15), transparent 28%),
+                radial-gradient(circle at 95% 8%, rgba(205, 163, 103, .15), transparent 26%),
+                radial-gradient(circle at 80% 92%, rgba(22, 119, 117, .12), transparent 28%);
         }
 
         .block-container {
@@ -29,24 +50,56 @@ st.markdown(
         }
 
         .hero {
-            padding: 24px 28px;
+            position: relative;
+            min-height: 265px;
+            padding: 26px 30px;
             border-radius: 24px;
             margin: 4px 0 18px 0;
             color: white;
-            background: linear-gradient(120deg, #ff4d6d 0%, #7c3aed 48%, #00b4d8 100%);
-            box-shadow: 0 18px 46px rgba(124, 58, 237, .24);
+            overflow: hidden;
+            background:
+                linear-gradient(90deg, rgba(20,44,34,.88) 0%, rgba(20,44,34,.55) 46%, rgba(20,44,34,.16) 100%),
+                url("https://www.fortynine.co.jp/upimg/ho24476116190.jpg") center 58% / cover no-repeat;
+            box-shadow: 0 18px 46px rgba(51, 65, 47, .22);
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
         }
 
-        .hero h1 {
-            margin: 0;
-            font-size: 2.25rem;
-            line-height: 1.05;
+        .wood-logo {
+            display: inline-block;
+            width: fit-content;
+            max-width: 520px;
+            padding: 14px 20px;
+            border-radius: 10px;
+            color: #1f2d24;
+            background:
+                linear-gradient(rgba(224,190,140,.93), rgba(192,151,102,.93));
+            border: 1px solid rgba(83,58,32,.35);
+            box-shadow: 0 8px 22px rgba(0,0,0,.22);
+            text-shadow: 0 1px 0 rgba(255,255,255,.35);
         }
 
-        .hero p {
-            margin: 8px 0 0 0;
-            font-size: 1rem;
-            opacity: .94;
+        .wood-logo .brand {
+            font-family: Georgia, "Times New Roman", serif;
+            font-size: 2rem;
+            font-weight: 800;
+            letter-spacing: .06em;
+            line-height: 1;
+        }
+
+        .wood-logo .tagline {
+            margin-top: 7px;
+            font-size: .9rem;
+            letter-spacing: .12em;
+            text-transform: uppercase;
+        }
+
+        .hero-subtitle {
+            margin-top: 14px;
+            font-size: 1.02rem;
+            font-weight: 600;
+            text-shadow: 0 2px 8px rgba(0,0,0,.55);
         }
 
         [data-testid="stMetric"] {
@@ -110,8 +163,33 @@ st.markdown(
             line-height: 1.7;
         }
 
+        .room-photo-card {
+            border-radius: 20px;
+            overflow: hidden;
+            margin-bottom: 12px;
+            border: 1px solid rgba(40,90,70,.14);
+            background: rgba(255,255,255,.72);
+            box-shadow: 0 10px 28px rgba(36, 70, 55, .10);
+        }
+
+        .room-photo-card img {
+            width: 100%;
+            height: 180px;
+            object-fit: cover;
+            display: block;
+        }
+
+        .room-photo-card .body {
+            padding: 12px 14px 14px 14px;
+        }
+
+        .room-photo-card .title {
+            font-weight: 850;
+            font-size: 1.02rem;
+        }
+
         .product-card {
-            min-height: 150px;
+            min-height: 238px;
             border-radius: 22px;
             padding: 18px;
             margin-bottom: 12px;
@@ -120,10 +198,19 @@ st.markdown(
             box-shadow: 0 12px 28px rgba(124,58,237,.18);
         }
 
-        .product-card .emoji {font-size: 2.2rem;}
-        .product-card .name {font-size: 1.15rem; font-weight: 850; margin-top: 5px;}
-        .product-card .price {font-size: 1.05rem; font-weight: 800; margin-top: 8px;}
-        .product-card .stock {font-size: .86rem; opacity: .92; margin-top: 4px;}
+        .product-card img {
+            width: 100%;
+            height: 125px;
+            object-fit: cover;
+            border-radius: 14px;
+            margin-bottom: 10px;
+            background: white;
+        }
+
+        .product-card .emoji {font-size: 1.6rem;}
+        .product-card .name {font-size: 1.05rem; font-weight: 850; margin-top: 5px;}
+        .product-card .price {font-size: 1rem; font-weight: 800; margin-top: 7px;}
+        .product-card .stock {font-size: .84rem; opacity: .92; margin-top: 4px;}
 
         .bar-banner {
             padding: 18px 22px;
@@ -151,7 +238,7 @@ st.markdown(
         }
 
         h2, h3 {
-            background: linear-gradient(90deg, #ff4d6d, #7c3aed, #00b4d8);
+            background: linear-gradient(90deg, #315c46, #167775, #b78245);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             font-weight: 850 !important;
@@ -1024,10 +1111,13 @@ if "bar_cart" not in st.session_state:
     st.session_state.bar_cart = []
 
 st.markdown(
-    """
+    f"""
     <div class="hero">
-        <h1>🏨 GestHotel Pro</h1>
-        <p>Réservations • chambres • clients • check-in / check-out • bar • paiements • dépenses</p>
+        <div class="wood-logo">
+            <div class="brand">🌴 HÔTEL PALMERIA</div>
+            <div class="tagline">{HOTEL_TAGLINE}</div>
+        </div>
+        <div class="hero-subtitle">{HOTEL_SUBTITLE}</div>
     </div>
     """,
     unsafe_allow_html=True,
@@ -1058,6 +1148,9 @@ st.markdown(
 )
 
 with tab_dashboard:
+    st.markdown("### Bienvenue à l’Hôtel Palmeria")
+    st.caption("Gestion quotidienne de l’hôtel — chambres, clients, bar et facturation")
+
     room_data = rows("SELECT * FROM rooms ORDER BY name")
     statuses = [
         room_status(room["id"], room["maintenance"])
@@ -1145,6 +1238,28 @@ with tab_dashboard:
 
 with tab_rooms:
     st.subheader("🛏️ Gestion des chambres")
+
+    room_cards = rows("SELECT * FROM rooms ORDER BY name")
+    if room_cards:
+        photo_cols = st.columns(min(3, len(room_cards)))
+        for index, room in enumerate(room_cards[:3]):
+            with photo_cols[index]:
+                image_url = ROOM_IMAGES[index % len(ROOM_IMAGES)]
+                status = room_status(room["id"], room["maintenance"])
+                st.markdown(
+                    f"""
+                    <div class="room-photo-card">
+                        <img src="{image_url}" alt="{room["name"]}">
+                        <div class="body">
+                            <div class="title">{room["name"]}</div>
+                            <div>{status}</div>
+                            <div><b>{format_ar(room["nightly_rate"])}</b> / nuit</div>
+                        </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
     st.dataframe(room_view(), use_container_width=True, hide_index=True)
 
     st.markdown("---")
@@ -1643,7 +1758,7 @@ with tab_bar:
     st.markdown(
         """
         <div class="bar-banner">
-            <h2 style="margin:0;color:white;-webkit-text-fill-color:white;">🍹 Le Bar de GestHotel</h2>
+            <h2 style="margin:0;color:white;-webkit-text-fill-color:white;">🍹 Le Bar Palmeria</h2>
             <p style="margin:6px 0 0 0;">Commandes comptoir • consommation en chambre • stock • encaissements</p>
         </div>
         """,
@@ -1675,9 +1790,16 @@ with tab_bar:
                 if int(product["stock"]) <= 5
                 else f'📦 Stock : {product["stock"]}'
             )
+            product_image = BAR_IMAGES.get(product["name"], "")
+            image_html = (
+                f'<img src="{product_image}" alt="{product["name"]}">'
+                if product_image
+                else ""
+            )
             st.markdown(
                 f"""
                 <div class="product-card">
+                    {image_html}
                     <div class="emoji">{product["emoji"]}</div>
                     <div class="name">{product["name"]}</div>
                     <div>{product["category"]}</div>
@@ -2078,6 +2200,8 @@ with tab_invoice:
             st.markdown(
                 f"""
                 <div class="invoice-card">
+                    <div style="font-family:Georgia,serif;font-size:1.05rem;font-weight:900;letter-spacing:.08em;margin-bottom:8px;">🌴 HÔTEL PALMERIA</div>
+                    <div style="opacity:.72;font-size:.86rem;margin-bottom:12px;">{HOTEL_TAGLINE}</div>
                     <div class="invoice-title">🧾 {invoice_number}</div>
                     <div class="invoice-meta">
                         <b>Client :</b> {r["client"]}<br>
