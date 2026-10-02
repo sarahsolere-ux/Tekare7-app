@@ -88,6 +88,27 @@ st.markdown(
         div[data-baseweb="tab-list"] button:nth-child(6) {background: rgba(59,130,246,.18);}
         div[data-baseweb="tab-list"] button:nth-child(7) {background: rgba(249,115,22,.18);}
         div[data-baseweb="tab-list"] button:nth-child(8) {background: rgba(6,182,212,.20);}
+        div[data-baseweb="tab-list"] button:nth-child(9) {background: rgba(14,165,233,.20);}
+
+        .invoice-card {
+            border-radius: 24px;
+            padding: 22px;
+            margin: 8px 0 18px 0;
+            background: linear-gradient(145deg, rgba(14,165,233,.14), rgba(124,58,237,.12), rgba(16,185,129,.10));
+            border: 1px solid rgba(14,165,233,.28);
+            box-shadow: 0 14px 34px rgba(14,165,233,.12);
+        }
+
+        .invoice-card .invoice-title {
+            font-size: 1.35rem;
+            font-weight: 900;
+            margin-bottom: 6px;
+        }
+
+        .invoice-card .invoice-meta {
+            opacity: .82;
+            line-height: 1.7;
+        }
 
         .product-card {
             min-height: 150px;
@@ -245,6 +266,19 @@ def init_db():
                 FOREIGN KEY(product_id) REFERENCES bar_products(id),
                 FOREIGN KEY(room_id) REFERENCES rooms(id)
             );
+
+            CREATE TABLE IF NOT EXISTS guest_extras (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                reservation_id INTEGER NOT NULL,
+                service_date TEXT NOT NULL,
+                label TEXT NOT NULL,
+                description TEXT DEFAULT '',
+                amount INTEGER NOT NULL,
+                paid INTEGER NOT NULL DEFAULT 0,
+                payment_method TEXT DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(reservation_id) REFERENCES reservations(id)
+            );
             """
         )
 
@@ -266,6 +300,26 @@ def init_db():
         if "checkout_at" not in reservation_columns:
             con.execute(
                 "ALTER TABLE reservations ADD COLUMN checkout_at TEXT DEFAULT ''"
+            )
+        if "invoice_closed" not in reservation_columns:
+            con.execute(
+                "ALTER TABLE reservations ADD COLUMN invoice_closed INTEGER NOT NULL DEFAULT 0"
+            )
+        if "invoice_number" not in reservation_columns:
+            con.execute(
+                "ALTER TABLE reservations ADD COLUMN invoice_number TEXT DEFAULT ''"
+            )
+        if "invoice_closed_at" not in reservation_columns:
+            con.execute(
+                "ALTER TABLE reservations ADD COLUMN invoice_closed_at TEXT DEFAULT ''"
+            )
+
+        bar_columns = {
+            item[1] for item in con.execute("PRAGMA table_info(bar_sales)").fetchall()
+        }
+        if "reservation_id" not in bar_columns:
+            con.execute(
+                "ALTER TABLE bar_sales ADD COLUMN reservation_id INTEGER"
             )
 
         if con.execute("SELECT COUNT(*) FROM rooms").fetchone()[0] == 0:
@@ -527,6 +581,16 @@ def outstanding_total():
         if item["status"] == "Annulée":
             continue
         total += max(int(item["total"]) - paid_for(item["id"]), 0)
+
+    pending_bar = one(
+        "SELECT COALESCE(SUM(total), 0) AS total FROM bar_sales WHERE paid = 0"
+    )
+    pending_extras = one(
+        "SELECT COALESCE(SUM(amount), 0) AS total FROM guest_extras WHERE paid = 0"
+    )
+
+    total += int(pending_bar["total"] if pending_bar else 0)
+    total += int(pending_extras["total"] if pending_extras else 0)
     return total
 
 
@@ -702,9 +766,205 @@ def active_guest_for_room(room_id):
     return guest["client"] if guest else ""
 
 
+def active_reservation_for_room(room_id):
+    today = date.today().isoformat()
+    reservation = one(
+        """
+        SELECT id, client
+        FROM reservations
+        WHERE room_id = ?
+          AND status != 'Annulée'
+          AND checked_out = 0
+          AND (
+              checked_in = 1
+              OR (arrival <= ? AND departure >= ?)
+          )
+        ORDER BY checked_in DESC, arrival
+        LIMIT 1
+        """,
+        (room_id, today, today),
+    )
+    return reservation
+
+
+def reservation_invoice(reservation_id):
+    reservation = one(
+        """
+        SELECT r.*, rm.name AS room_name
+        FROM reservations r
+        JOIN rooms rm ON rm.id = r.room_id
+        WHERE r.id = ?
+        """,
+        (reservation_id,),
+    )
+
+    if not reservation:
+        return None
+
+    lodging_total = int(reservation["total"])
+    lodging_paid = paid_for(reservation_id)
+
+    bar_items = rows(
+        """
+        SELECT
+            bs.id,
+            bs.ticket,
+            bs.sale_date,
+            bp.name AS product_name,
+            bs.quantity,
+            bs.unit_price,
+            bs.total,
+            bs.paid,
+            bs.payment_method
+        FROM bar_sales bs
+        JOIN bar_products bp ON bp.id = bs.product_id
+        WHERE
+            bs.reservation_id = ?
+            OR (
+                bs.reservation_id IS NULL
+                AND bs.room_id = ?
+                AND bs.sale_date >= ?
+                AND bs.sale_date <= ?
+            )
+        ORDER BY bs.sale_date, bs.id
+        """,
+        (
+            reservation_id,
+            reservation["room_id"],
+            reservation["arrival"],
+            reservation["departure"],
+        ),
+    )
+
+    extras = rows(
+        """
+        SELECT id, service_date, label, description, amount, paid, payment_method
+        FROM guest_extras
+        WHERE reservation_id = ?
+        ORDER BY service_date, id
+        """,
+        (reservation_id,),
+    )
+
+    bar_total = sum(int(item["total"]) for item in bar_items)
+    bar_paid = sum(int(item["total"]) for item in bar_items if item["paid"])
+    extras_total = sum(int(item["amount"]) for item in extras)
+    extras_paid = sum(int(item["amount"]) for item in extras if item["paid"])
+
+    grand_total = lodging_total + bar_total + extras_total
+    paid_total = lodging_paid + bar_paid + extras_paid
+    remaining = max(grand_total - paid_total, 0)
+
+    return {
+        "reservation": reservation,
+        "lodging_total": lodging_total,
+        "lodging_paid": lodging_paid,
+        "bar_items": bar_items,
+        "bar_total": bar_total,
+        "bar_paid": bar_paid,
+        "extras": extras,
+        "extras_total": extras_total,
+        "extras_paid": extras_paid,
+        "grand_total": grand_total,
+        "paid_total": paid_total,
+        "remaining": remaining,
+    }
+
+
+def close_reservation_invoice(reservation_id, payment_method):
+    invoice = reservation_invoice(reservation_id)
+    if not invoice:
+        raise ValueError("Séjour introuvable.")
+
+    reservation = invoice["reservation"]
+    invoice_number = (
+        reservation["invoice_number"]
+        or f'FAC-{date.today().year}-{reservation_id:04d}'
+    )
+
+    lodging_due = max(
+        invoice["lodging_total"] - invoice["lodging_paid"],
+        0,
+    )
+
+    with db() as con:
+        if lodging_due > 0:
+            con.execute(
+                """
+                INSERT INTO payments(
+                    reservation_id, payment_date, amount, method
+                )
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    reservation_id,
+                    date.today().isoformat(),
+                    lodging_due,
+                    payment_method,
+                ),
+            )
+
+        con.execute(
+            """
+            UPDATE bar_sales
+            SET paid = 1, payment_method = ?
+            WHERE paid = 0
+              AND (
+                  reservation_id = ?
+                  OR (
+                      reservation_id IS NULL
+                      AND room_id = ?
+                      AND sale_date >= ?
+                      AND sale_date <= ?
+                  )
+              )
+            """,
+            (
+                payment_method,
+                reservation_id,
+                reservation["room_id"],
+                reservation["arrival"],
+                reservation["departure"],
+            ),
+        )
+
+        con.execute(
+            """
+            UPDATE guest_extras
+            SET paid = 1, payment_method = ?
+            WHERE reservation_id = ? AND paid = 0
+            """,
+            (payment_method, reservation_id),
+        )
+
+        con.execute(
+            """
+            UPDATE reservations
+            SET
+                checked_out = 1,
+                checkout_at = CASE
+                    WHEN checkout_at = '' OR checkout_at IS NULL
+                    THEN CURRENT_TIMESTAMP
+                    ELSE checkout_at
+                END,
+                invoice_closed = 1,
+                invoice_number = ?,
+                invoice_closed_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (invoice_number, reservation_id),
+        )
+
+        con.commit()
+
+    return invoice_number
+
+
 def save_bar_ticket(cart, payment_method, room_id=None, client=""):
     ticket = f'BAR-{datetime.now().strftime("%Y%m%d-%H%M%S-%f")}'
     paid = 0 if payment_method == "Ajouter à la chambre" else 1
+    linked_reservation = active_reservation_for_room(room_id) if room_id else None
+    reservation_id = linked_reservation["id"] if linked_reservation else None
 
     with db() as con:
         for line in cart:
@@ -729,9 +989,9 @@ def save_bar_ticket(cart, payment_method, room_id=None, client=""):
                 """
                 INSERT INTO bar_sales(
                     ticket, sale_date, product_id, quantity, unit_price, total,
-                    payment_method, room_id, client, paid
+                    payment_method, room_id, client, paid, reservation_id
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     ticket,
@@ -744,6 +1004,7 @@ def save_bar_ticket(cart, payment_method, room_id=None, client=""):
                     room_id,
                     client.strip(),
                     paid,
+                    reservation_id,
                 ),
             )
 
@@ -779,6 +1040,7 @@ st.markdown(
     tab_planning,
     tab_clients,
     tab_bar,
+    tab_invoice,
     tab_payments,
     tab_expenses,
 ) = st.tabs(
@@ -789,6 +1051,7 @@ st.markdown(
         "🗓️ Planning",
         "👥 Clients",
         "🍹 Bar",
+        "📄 Facture",
         "💰 Paiements",
         "🧾 Dépenses",
     ]
@@ -1753,6 +2016,282 @@ with tab_bar:
         )
     else:
         st.info("Aucune commande enregistrée.")
+
+
+with tab_invoice:
+    st.subheader("📄 Facture client & clôture du séjour")
+    st.caption(
+        "Une seule fiche regroupe l’hébergement, le bar, les extras, les paiements et le solde final."
+    )
+
+    invoice_stays = rows(
+        """
+        SELECT
+            r.id,
+            r.client,
+            r.phone,
+            r.arrival,
+            r.departure,
+            r.checked_in,
+            r.checked_out,
+            r.invoice_closed,
+            r.invoice_number,
+            rm.name AS room_name
+        FROM reservations r
+        JOIN rooms rm ON rm.id = r.room_id
+        WHERE r.status != 'Annulée'
+        ORDER BY r.invoice_closed ASC, r.departure DESC, r.id DESC
+        """
+    )
+
+    if not invoice_stays:
+        st.info("Aucun séjour disponible pour la facturation.")
+    else:
+        invoice_labels = {
+            (
+                f'{"✅ " if item["invoice_closed"] else "🟣 "}'
+                f'R{item["id"]:03d} — {item["client"]} — {item["room_name"]} '
+                f'({item["arrival"]} → {item["departure"]})'
+            ): item
+            for item in invoice_stays
+        }
+
+        invoice_label = st.selectbox(
+            "Séjour / client",
+            list(invoice_labels.keys()),
+            key="invoice_stay_select",
+        )
+        invoice_stay = invoice_labels[invoice_label]
+        invoice = reservation_invoice(invoice_stay["id"])
+
+        if invoice:
+            r = invoice["reservation"]
+            nights = (
+                date.fromisoformat(r["departure"])
+                - date.fromisoformat(r["arrival"])
+            ).days
+            invoice_number = (
+                r["invoice_number"]
+                or f'PROV-{date.today().year}-{r["id"]:04d}'
+            )
+
+            st.markdown(
+                f"""
+                <div class="invoice-card">
+                    <div class="invoice-title">🧾 {invoice_number}</div>
+                    <div class="invoice-meta">
+                        <b>Client :</b> {r["client"]}<br>
+                        <b>Téléphone :</b> {r["phone"] or "-"}<br>
+                        <b>Chambre :</b> {r["room_name"]}<br>
+                        <b>Séjour :</b> {r["arrival"]} → {r["departure"]} • {nights} nuit(s)<br>
+                        <b>Statut :</b> {"✅ Facture clôturée" if r["invoice_closed"] else "🟣 Facture ouverte"}
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+            m1, m2, m3 = st.columns(3)
+            m1.metric("🧾 Total facture", format_ar(invoice["grand_total"]))
+            m2.metric("✅ Déjà réglé", format_ar(invoice["paid_total"]))
+            m3.metric("💳 Reste à payer", format_ar(invoice["remaining"]))
+
+            st.markdown("#### 🛏️ Hébergement")
+            st.dataframe(
+                [
+                    {
+                        "Prestation": f'{nights} nuit(s) — {r["room_name"]}',
+                        "Prix / nuit": format_ar(r["nightly_rate"]),
+                        "Total": format_ar(invoice["lodging_total"]),
+                        "Déjà payé": format_ar(invoice["lodging_paid"]),
+                        "Reste": format_ar(
+                            max(
+                                invoice["lodging_total"] - invoice["lodging_paid"],
+                                0,
+                            )
+                        ),
+                    }
+                ],
+                use_container_width=True,
+                hide_index=True,
+            )
+
+            st.markdown("#### 🍹 Bar")
+            if invoice["bar_items"]:
+                st.dataframe(
+                    [
+                        {
+                            "Date": item["sale_date"],
+                            "Produit": item["product_name"],
+                            "Qté": item["quantity"],
+                            "Prix": format_ar(item["unit_price"]),
+                            "Total": format_ar(item["total"]),
+                            "Statut": "🟢 Payé" if item["paid"] else "🟠 Sur la chambre",
+                        }
+                        for item in invoice["bar_items"]
+                    ],
+                    use_container_width=True,
+                    hide_index=True,
+                )
+            else:
+                st.info("Aucune consommation bar sur ce séjour.")
+
+            st.markdown("#### ✨ Autres extras")
+            if invoice["extras"]:
+                st.dataframe(
+                    [
+                        {
+                            "Date": item["service_date"],
+                            "Extra": item["label"],
+                            "Description": item["description"] or "-",
+                            "Montant": format_ar(item["amount"]),
+                            "Statut": "🟢 Payé" if item["paid"] else "🟠 À régler",
+                        }
+                        for item in invoice["extras"]
+                    ],
+                    use_container_width=True,
+                    hide_index=True,
+                )
+            else:
+                st.info("Aucun extra ajouté.")
+
+            if not r["invoice_closed"]:
+                with st.expander("➕ Ajouter un extra à la facture"):
+                    with st.form("invoice_extra_form", clear_on_submit=True):
+                        extra_date = st.date_input(
+                            "Date",
+                            value=date.today(),
+                            key="invoice_extra_date",
+                        )
+                        extra_label = st.selectbox(
+                            "Type d’extra",
+                            [
+                                "Petit-déjeuner",
+                                "Blanchisserie",
+                                "Transfert / transport",
+                                "Repas",
+                                "Room service",
+                                "Autre",
+                            ],
+                        )
+                        extra_description = st.text_input(
+                            "Description",
+                            placeholder="Ex. Transfert aéroport",
+                        )
+                        extra_amount = st.number_input(
+                            "Montant (Ar)",
+                            min_value=0,
+                            step=5000,
+                        )
+                        save_extra = st.form_submit_button(
+                            "➕ Ajouter à la facture",
+                            type="primary",
+                            use_container_width=True,
+                        )
+
+                    if save_extra:
+                        if extra_amount <= 0:
+                            st.error("Le montant doit être supérieur à 0.")
+                        else:
+                            run(
+                                """
+                                INSERT INTO guest_extras(
+                                    reservation_id,
+                                    service_date,
+                                    label,
+                                    description,
+                                    amount
+                                )
+                                VALUES (?, ?, ?, ?, ?)
+                                """,
+                                (
+                                    r["id"],
+                                    extra_date.isoformat(),
+                                    extra_label,
+                                    extra_description.strip(),
+                                    int(extra_amount),
+                                ),
+                            )
+                            st.success("✅ Extra ajouté à la facture.")
+                            st.rerun()
+
+                st.markdown("---")
+                st.markdown("### ✅ Clôturer le séjour")
+
+                if invoice["remaining"] > 0:
+                    st.warning(
+                        f'Reste à régler avant clôture : **{format_ar(invoice["remaining"])}**'
+                    )
+                    final_payment_method = st.selectbox(
+                        "Mode de règlement final",
+                        [
+                            "Espèces",
+                            "MVola",
+                            "Orange Money",
+                            "Airtel Money",
+                            "Carte bancaire",
+                            "Virement",
+                        ],
+                        key="invoice_final_payment",
+                    )
+                else:
+                    st.success("La facture est entièrement réglée.")
+                    final_payment_method = "Déjà réglé"
+
+                confirm_close = st.checkbox(
+                    "Je confirme la clôture du séjour et de la facture.",
+                    key="invoice_close_confirm",
+                )
+
+                if st.button(
+                    "🔒 Clôturer le séjour",
+                    type="primary",
+                    use_container_width=True,
+                    disabled=not confirm_close,
+                    key="invoice_close_button",
+                ):
+                    try:
+                        closed_number = close_reservation_invoice(
+                            r["id"],
+                            final_payment_method,
+                        )
+                        st.success(
+                            f"✅ Séjour clôturé. Facture {closed_number} finalisée."
+                        )
+                        st.rerun()
+                    except ValueError as exc:
+                        st.error(str(exc))
+            else:
+                st.success(
+                    f'✅ Séjour clôturé — facture {r["invoice_number"] or invoice_number}'
+                )
+
+            st.markdown("---")
+            st.markdown("#### 💳 Paiements hébergement")
+            stay_payments = rows(
+                """
+                SELECT payment_date, amount, method
+                FROM payments
+                WHERE reservation_id = ?
+                ORDER BY payment_date, id
+                """,
+                (r["id"],),
+            )
+            if stay_payments:
+                st.dataframe(
+                    [
+                        {
+                            "Date": item["payment_date"],
+                            "Montant": format_ar(item["amount"]),
+                            "Mode": item["method"],
+                        }
+                        for item in stay_payments
+                    ],
+                    use_container_width=True,
+                    hide_index=True,
+                )
+            else:
+                st.info("Aucun paiement hébergement enregistré.")
 
 
 with tab_payments:
