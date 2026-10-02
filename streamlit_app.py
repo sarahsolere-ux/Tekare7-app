@@ -213,12 +213,55 @@ st.markdown(
         .product-card .stock {font-size: .84rem; opacity: .92; margin-top: 4px;}
 
         .bar-banner {
-            padding: 18px 22px;
+            min-height: 150px;
+            padding: 22px 24px;
             border-radius: 20px;
             margin: 4px 0 16px 0;
             color: white;
-            background: linear-gradient(110deg, #06b6d4, #10b981, #f59e0b);
-            box-shadow: 0 12px 30px rgba(6,182,212,.18);
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+            background:
+                linear-gradient(90deg, rgba(23,55,40,.86), rgba(23,55,40,.40)),
+                url("https://www.fortynine.co.jp/upimg/ho24476116190.jpg") center 55% / cover no-repeat;
+            box-shadow: 0 12px 30px rgba(49,92,70,.22);
+            text-shadow: 0 2px 8px rgba(0,0,0,.45);
+        }
+
+        .invoice-preview {
+            border-radius: 20px;
+            padding: 22px;
+            margin: 12px 0 18px 0;
+            background: #fffdf8;
+            border: 1px solid rgba(115,86,52,.18);
+            box-shadow: 0 12px 28px rgba(80,60,35,.08);
+        }
+
+        .invoice-preview .invoice-brand {
+            font-family: Georgia, "Times New Roman", serif;
+            font-size: 1.4rem;
+            font-weight: 900;
+            color: #315c46;
+            letter-spacing: .06em;
+        }
+
+        .invoice-preview table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 14px;
+            font-size: .92rem;
+        }
+
+        .invoice-preview th,
+        .invoice-preview td {
+            padding: 9px 8px;
+            border-bottom: 1px solid rgba(80,60,35,.10);
+            text-align: left;
+        }
+
+        .invoice-preview .total-row {
+            font-weight: 900;
+            font-size: 1.02rem;
         }
 
         div.stButton > button,
@@ -434,6 +477,134 @@ def init_db():
                     ("Jus naturel ananas", "Jus naturels", "🍍", 7000, 12),
                 ],
             )
+
+        # Démonstration : deux vrais scénarios clients visibles dans le prototype.
+        today_demo = date.today()
+        demo_clients = [
+            {
+                "client": "Ranaivo Andry",
+                "phone": "034 12 345 67",
+                "room": "Chambre 101",
+                "nights": 2,
+                "payment": 150000,
+                "method": "MVola",
+            },
+            {
+                "client": "Vololona M.",
+                "phone": "032 98 765 43",
+                "room": "Chambre 102",
+                "nights": 1,
+                "payment": 60000,
+                "method": "Espèces",
+            },
+        ]
+
+        for demo in demo_clients:
+            existing_demo = con.execute(
+                """
+                SELECT id FROM reservations
+                WHERE client = ? AND phone = ?
+                LIMIT 1
+                """,
+                (demo["client"], demo["phone"]),
+            ).fetchone()
+
+            if existing_demo:
+                continue
+
+            room = con.execute(
+                "SELECT id, nightly_rate FROM rooms WHERE name = ?",
+                (demo["room"],),
+            ).fetchone()
+
+            if not room:
+                continue
+
+            arrival_demo = today_demo.isoformat()
+            departure_demo = (
+                today_demo + timedelta(days=demo["nights"])
+            ).isoformat()
+            lodging_total = int(room["nightly_rate"]) * demo["nights"]
+
+            cursor = con.execute(
+                """
+                INSERT INTO reservations(
+                    room_id, client, phone, arrival, departure,
+                    nightly_rate, total, status, checked_in, checkin_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'Confirmée', 1, CURRENT_TIMESTAMP)
+                """,
+                (
+                    room["id"],
+                    demo["client"],
+                    demo["phone"],
+                    arrival_demo,
+                    departure_demo,
+                    int(room["nightly_rate"]),
+                    lodging_total,
+                ),
+            )
+            reservation_id = cursor.lastrowid
+
+            con.execute(
+                """
+                INSERT INTO payments(
+                    reservation_id, payment_date, amount, method
+                )
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    reservation_id,
+                    today_demo.isoformat(),
+                    min(demo["payment"], lodging_total),
+                    demo["method"],
+                ),
+            )
+
+            if demo["client"] == "Ranaivo Andry":
+                con.execute(
+                    """
+                    INSERT INTO guest_extras(
+                        reservation_id, service_date, label, description, amount
+                    )
+                    VALUES (?, ?, 'Petit-déjeuner', 'Petit-déjeuner tropical', 20000)
+                    """,
+                    (reservation_id, today_demo.isoformat()),
+                )
+
+                coca = con.execute(
+                    """
+                    SELECT id, price, stock FROM bar_products
+                    WHERE name = 'Coca-Cola 50 cl'
+                    """
+                ).fetchone()
+                if coca and int(coca["stock"]) >= 2:
+                    con.execute(
+                        """
+                        INSERT INTO bar_sales(
+                            ticket, sale_date, product_id, quantity, unit_price,
+                            total, payment_method, room_id, client, paid, reservation_id
+                        )
+                        VALUES (
+                            'DEMO-R101', ?, ?, 2, ?, ?,
+                            'Ajouter à la chambre', ?, ?, 0, ?
+                        )
+                        """,
+                        (
+                            today_demo.isoformat(),
+                            coca["id"],
+                            int(coca["price"]),
+                            int(coca["price"]) * 2,
+                            room["id"],
+                            demo["client"],
+                            reservation_id,
+                        ),
+                    )
+                    con.execute(
+                        "UPDATE bar_products SET stock = stock - 2 WHERE id = ?",
+                        (coca["id"],),
+                    )
+
         con.commit()
 
 
@@ -2219,6 +2390,83 @@ with tab_invoice:
             m1.metric("🧾 Total facture", format_ar(invoice["grand_total"]))
             m2.metric("✅ Déjà réglé", format_ar(invoice["paid_total"]))
             m3.metric("💳 Reste à payer", format_ar(invoice["remaining"]))
+
+            preview_rows = [
+                (
+                    f"{nights} nuit(s) — {r['room_name']}",
+                    "Hébergement",
+                    invoice["lodging_total"],
+                )
+            ]
+            preview_rows.extend(
+                [
+                    (
+                        f"{item['quantity']} × {item['product_name']}",
+                        "Bar",
+                        int(item["total"]),
+                    )
+                    for item in invoice["bar_items"]
+                ]
+            )
+            preview_rows.extend(
+                [
+                    (
+                        item["label"],
+                        item["description"] or "Extra",
+                        int(item["amount"]),
+                    )
+                    for item in invoice["extras"]
+                ]
+            )
+
+            preview_html_rows = "".join(
+                [
+                    (
+                        "<tr>"
+                        f"<td>{label}</td>"
+                        f"<td>{detail}</td>"
+                        f"<td>{format_ar(amount)}</td>"
+                        "</tr>"
+                    )
+                    for label, detail, amount in preview_rows
+                ]
+            )
+
+            st.markdown("### 👁️ Aperçu facture client")
+            st.markdown(
+                f"""
+                <div class="invoice-preview">
+                    <div class="invoice-brand">🌴 HÔTEL PALMERIA</div>
+                    <div style="margin-top:4px;color:#6f6252;">{HOTEL_TAGLINE}</div>
+                    <div style="margin-top:14px;"><b>{invoice_number}</b></div>
+                    <div style="margin-top:8px;">
+                        Client : <b>{r["client"]}</b> • Chambre : <b>{r["room_name"]}</b><br>
+                        Séjour : {r["arrival"]} → {r["departure"]}
+                    </div>
+                    <table>
+                        <thead>
+                            <tr><th>Désignation</th><th>Détail</th><th>Montant</th></tr>
+                        </thead>
+                        <tbody>
+                            {preview_html_rows}
+                            <tr class="total-row">
+                                <td colspan="2">TOTAL</td>
+                                <td>{format_ar(invoice["grand_total"])}</td>
+                            </tr>
+                            <tr>
+                                <td colspan="2">Déjà réglé</td>
+                                <td>{format_ar(invoice["paid_total"])}</td>
+                            </tr>
+                            <tr class="total-row">
+                                <td colspan="2">RESTE À PAYER</td>
+                                <td>{format_ar(invoice["remaining"])}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
             st.markdown("#### 🛏️ Hébergement")
             st.dataframe(
