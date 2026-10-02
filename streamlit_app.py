@@ -76,6 +76,16 @@ def init_db():
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY(reservation_id) REFERENCES reservations(id)
             );
+
+            CREATE TABLE IF NOT EXISTS expenses (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                expense_date TEXT NOT NULL,
+                category TEXT NOT NULL,
+                description TEXT DEFAULT '',
+                amount INTEGER NOT NULL,
+                payment_method TEXT NOT NULL DEFAULT 'Espèces',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
             """
         )
 
@@ -274,6 +284,31 @@ def revenue_totals():
     return day_total, week_total, month_total, all_total
 
 
+def expense_totals():
+    expenses = rows("SELECT expense_date, amount FROM expenses")
+    today = date.today()
+    start_week = today - timedelta(days=today.weekday())
+    start_month = today.replace(day=1)
+
+    day_total = 0
+    week_total = 0
+    month_total = 0
+    all_total = 0
+
+    for expense in expenses:
+        edate = date.fromisoformat(expense["expense_date"])
+        amount = int(expense["amount"])
+        all_total += amount
+        if edate == today:
+            day_total += amount
+        if edate >= start_week:
+            week_total += amount
+        if edate >= start_month:
+            month_total += amount
+
+    return day_total, week_total, month_total, all_total
+
+
 def outstanding_total():
     total = 0
     for item in rows("SELECT id, total, status FROM reservations"):
@@ -281,6 +316,34 @@ def outstanding_total():
             continue
         total += max(int(item["total"]) - paid_for(item["id"]), 0)
     return total
+
+
+def today_movements():
+    today = date.today().isoformat()
+
+    arrivals = rows(
+        """
+        SELECT r.id, r.client, r.phone, rm.name AS room_name
+        FROM reservations r
+        JOIN rooms rm ON rm.id = r.room_id
+        WHERE r.arrival = ? AND r.status != 'Annulée'
+        ORDER BY rm.name
+        """,
+        (today,),
+    )
+
+    departures = rows(
+        """
+        SELECT r.id, r.client, r.phone, rm.name AS room_name
+        FROM reservations r
+        JOIN rooms rm ON rm.id = r.room_id
+        WHERE r.departure = ? AND r.status != 'Annulée'
+        ORDER BY rm.name
+        """,
+        (today,),
+    )
+
+    return arrivals, departures
 
 
 init_db()
@@ -291,8 +354,14 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-tab_dashboard, tab_rooms, tab_reservations, tab_payments = st.tabs(
-    ["📊 Tableau de bord", "🛏️ Chambres", "📅 Réservations", "💰 Paiements"]
+tab_dashboard, tab_rooms, tab_reservations, tab_payments, tab_expenses = st.tabs(
+    [
+        "📊 Tableau de bord",
+        "🛏️ Chambres",
+        "📅 Réservations",
+        "💰 Paiements",
+        "🧾 Dépenses",
+    ]
 )
 
 with tab_dashboard:
@@ -302,23 +371,74 @@ with tab_dashboard:
         for room in room_data
     ]
 
-    c1, c2, c3, c4 = st.columns(4)
+    occupied_count = statuses.count("🔴 Occupée")
+    occupancy_rate = round((occupied_count / len(room_data)) * 100) if room_data else 0
+
+    c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("🏨 Chambres", len(room_data))
     c2.metric("🟢 Libres", statuses.count("🟢 Libre"))
-    c3.metric("🔴 Occupées", statuses.count("🔴 Occupée"))
+    c3.metric("🔴 Occupées", occupied_count)
     c4.metric("🟠 Réservées", statuses.count("🟠 Réservée"))
+    c5.metric("📈 Occupation", f"{occupancy_rate} %")
 
     st.markdown("---")
-    st.subheader("💰 Chiffre d’affaires encaissé")
+    st.subheader("💰 Finances")
     day_total, week_total, month_total, all_total = revenue_totals()
+    expense_day, expense_week, expense_month, expense_all = expense_totals()
 
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Aujourd’hui", format_ar(day_total))
-    c2.metric("Cette semaine", format_ar(week_total))
-    c3.metric("Ce mois", format_ar(month_total))
-    c4.metric("Total encaissé", format_ar(all_total))
+    c1.metric("Encaissements aujourd’hui", format_ar(day_total))
+    c2.metric("Encaissements ce mois", format_ar(month_total))
+    c3.metric("Dépenses ce mois", format_ar(expense_month))
+    c4.metric("Résultat ce mois", format_ar(month_total - expense_month))
 
-    st.metric("⏳ Reste à encaisser", format_ar(outstanding_total()))
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Total encaissé", format_ar(all_total))
+    c2.metric("Total dépenses", format_ar(expense_all))
+    c3.metric("⏳ Reste à encaisser", format_ar(outstanding_total()))
+
+    st.markdown("---")
+    st.subheader("📍 Aujourd’hui")
+    arrivals, departures = today_movements()
+    left_today, right_today = st.columns(2)
+
+    with left_today:
+        st.markdown("#### 🟢 Arrivées")
+        if arrivals:
+            st.dataframe(
+                [
+                    {
+                        "Réservation": f'R{item["id"]:03d}',
+                        "Chambre": item["room_name"],
+                        "Client": item["client"],
+                        "Téléphone": item["phone"] or "-",
+                    }
+                    for item in arrivals
+                ],
+                use_container_width=True,
+                hide_index=True,
+            )
+        else:
+            st.info("Aucune arrivée aujourd’hui.")
+
+    with right_today:
+        st.markdown("#### 🔵 Départs")
+        if departures:
+            st.dataframe(
+                [
+                    {
+                        "Réservation": f'R{item["id"]:03d}',
+                        "Chambre": item["room_name"],
+                        "Client": item["client"],
+                        "Téléphone": item["phone"] or "-",
+                    }
+                    for item in departures
+                ],
+                use_container_width=True,
+                hide_index=True,
+            )
+        else:
+            st.info("Aucun départ aujourd’hui.")
 
     st.markdown("---")
     st.subheader("🛏️ État des chambres")
@@ -398,6 +518,36 @@ with tab_rooms:
                         (selected_room["id"],),
                     )
                     st.rerun()
+
+    st.markdown("---")
+    st.markdown("#### ✏️ Modifier le tarif d’une chambre")
+    editable_rooms = rows("SELECT id, name, nightly_rate FROM rooms ORDER BY name")
+    if editable_rooms:
+        edit_labels = {room["name"]: room for room in editable_rooms}
+        edit_label = st.selectbox(
+            "Chambre à modifier",
+            list(edit_labels.keys()),
+            key="edit_room_rate",
+        )
+        edit_room = edit_labels[edit_label]
+        with st.form("edit_room_rate_form"):
+            new_rate = st.number_input(
+                "Nouveau tarif / nuit (Ar)",
+                min_value=0,
+                value=int(edit_room["nightly_rate"]),
+                step=5000,
+            )
+            save_rate = st.form_submit_button(
+                "💾 Enregistrer le tarif",
+                use_container_width=True,
+            )
+        if save_rate:
+            run(
+                "UPDATE rooms SET nightly_rate = ? WHERE id = ?",
+                (int(new_rate), edit_room["id"]),
+            )
+            st.success("✅ Tarif mis à jour.")
+            st.rerun()
 
 with tab_reservations:
     st.subheader("📅 Nouvelle réservation")
@@ -638,3 +788,119 @@ with tab_payments:
         )
     else:
         st.info("Aucun paiement enregistré.")
+
+
+with tab_expenses:
+    st.subheader("🧾 Dépenses de l’établissement")
+
+    with st.form("new_expense", clear_on_submit=True):
+        c1, c2 = st.columns(2)
+        with c1:
+            expense_date = st.date_input(
+                "Date",
+                value=date.today(),
+                key="expense_date",
+            )
+            category = st.selectbox(
+                "Catégorie",
+                [
+                    "Personnel",
+                    "Électricité / eau",
+                    "Internet / téléphone",
+                    "Entretien / ménage",
+                    "Réparations",
+                    "Fournitures",
+                    "Achats",
+                    "Transport",
+                    "Taxes / frais",
+                    "Autre",
+                ],
+            )
+        with c2:
+            expense_amount = st.number_input(
+                "Montant (Ar)",
+                min_value=0,
+                step=5000,
+            )
+            expense_method = st.selectbox(
+                "Mode de paiement",
+                [
+                    "Espèces",
+                    "MVola",
+                    "Orange Money",
+                    "Airtel Money",
+                    "Carte bancaire",
+                    "Virement",
+                    "Autre",
+                ],
+                key="expense_method",
+            )
+
+        expense_description = st.text_input(
+            "Description",
+            placeholder="Ex. Achat produits de ménage",
+        )
+
+        save_expense = st.form_submit_button(
+            "➕ Enregistrer la dépense",
+            type="primary",
+            use_container_width=True,
+        )
+
+    if save_expense:
+        if expense_amount <= 0:
+            st.error("Le montant doit être supérieur à 0.")
+        else:
+            run(
+                """
+                INSERT INTO expenses(
+                    expense_date, category, description, amount, payment_method
+                )
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    expense_date.isoformat(),
+                    category,
+                    expense_description.strip(),
+                    int(expense_amount),
+                    expense_method,
+                ),
+            )
+            st.success("✅ Dépense enregistrée.")
+            st.rerun()
+
+    st.markdown("---")
+
+    exp_day, exp_week, exp_month, exp_all = expense_totals()
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Aujourd’hui", format_ar(exp_day))
+    c2.metric("Cette semaine", format_ar(exp_week))
+    c3.metric("Ce mois", format_ar(exp_month))
+    c4.metric("Total", format_ar(exp_all))
+
+    st.markdown("#### 📒 Historique des dépenses")
+    expense_history = rows(
+        """
+        SELECT expense_date, category, description, amount, payment_method
+        FROM expenses
+        ORDER BY expense_date DESC, id DESC
+        """
+    )
+
+    if expense_history:
+        st.dataframe(
+            [
+                {
+                    "Date": item["expense_date"],
+                    "Catégorie": item["category"],
+                    "Description": item["description"] or "-",
+                    "Montant": format_ar(item["amount"]),
+                    "Paiement": item["payment_method"],
+                }
+                for item in expense_history
+            ],
+            use_container_width=True,
+            hide_index=True,
+        )
+    else:
+        st.info("Aucune dépense enregistrée.")
