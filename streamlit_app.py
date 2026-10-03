@@ -602,21 +602,116 @@ def init_db():
                 ],
             )
 
-        if con.execute("SELECT COUNT(*) FROM bar_products").fetchone()[0] == 0:
-            con.executemany(
-                """
-                INSERT INTO bar_products(name, category, emoji, price, stock)
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                [
-                    ("Coca-Cola 50 cl", "Sodas", "🥤", 6000, 24),
-                    ("Limonade 50 cl", "Sodas", "🍋", 5000, 18),
-                    ("Eau minérale 1 L", "Eaux", "💧", 3000, 30),
-                    ("Bière 65 cl", "Bières", "🍺", 8000, 20),
-                    ("Jus naturel mangue", "Jus naturels", "🥭", 7000, 12),
-                    ("Jus naturel ananas", "Jus naturels", "🍍", 7000, 12),
-                ],
-            )
+        # Carte complète d'un bar d'hôtel. INSERT OR IGNORE permet d'ajouter
+        # les nouveaux produits aux bases déjà existantes sans écraser les prix
+        # ou stocks personnalisés par l'hôtel.
+        default_bar_products = [
+            # Eaux
+            ("Eau minérale 33 cl", "Eaux", "💧", 2000, 24),
+            ("Eau minérale 50 cl", "Eaux", "💧", 2500, 30),
+            ("Eau minérale 1 L", "Eaux", "💧", 3000, 30),
+            ("Eau pétillante 50 cl", "Eaux", "🫧", 5000, 16),
+            ("Eau pétillante 1 L", "Eaux", "🫧", 7000, 12),
+
+            # Sodas et boissons fraîches
+            ("Coca-Cola 33 cl", "Sodas", "🥤", 5000, 24),
+            ("Coca-Cola 50 cl", "Sodas", "🥤", 6000, 24),
+            ("Coca-Cola Zéro 33 cl", "Sodas", "🥤", 5500, 18),
+            ("Fanta Orange 33 cl", "Sodas", "🍊", 5000, 18),
+            ("Sprite 33 cl", "Sodas", "🥤", 5000, 18),
+            ("Limonade 50 cl", "Sodas", "🍋", 5000, 18),
+            ("Tonic 25 cl", "Sodas", "🫧", 6000, 14),
+            ("Ginger Ale 25 cl", "Sodas", "🫚", 6000, 12),
+            ("Thé glacé pêche 33 cl", "Sodas", "🍑", 6000, 14),
+
+            # Jus naturels
+            ("Jus naturel mangue", "Jus naturels", "🥭", 7000, 12),
+            ("Jus naturel ananas", "Jus naturels", "🍍", 7000, 12),
+            ("Jus naturel orange", "Jus naturels", "🍊", 7000, 12),
+            ("Jus naturel citron", "Jus naturels", "🍋", 7000, 12),
+            ("Jus naturel passion", "Jus naturels", "🌿", 8000, 10),
+            ("Jus naturel goyave", "Jus naturels", "🍹", 8000, 10),
+            ("Jus naturel papaye", "Jus naturels", "🍹", 7000, 10),
+            ("Jus naturel pastèque", "Jus naturels", "🍉", 7000, 10),
+
+            # Jus en bouteille
+            ("Jus orange bouteille 25 cl", "Jus bouteille", "🧃", 5000, 18),
+            ("Jus pomme bouteille 25 cl", "Jus bouteille", "🧃", 5000, 16),
+            ("Jus ananas bouteille 25 cl", "Jus bouteille", "🧃", 5000, 16),
+            ("Jus multifruits 25 cl", "Jus bouteille", "🧃", 5500, 16),
+            ("Jus tomate 25 cl", "Jus bouteille", "🍅", 5500, 10),
+
+            # Boissons chaudes
+            ("Espresso", "Boissons chaudes", "☕", 4000, 40),
+            ("Double espresso", "Boissons chaudes", "☕", 6000, 30),
+            ("Café allongé", "Boissons chaudes", "☕", 4500, 30),
+            ("Café au lait", "Boissons chaudes", "🥛", 6000, 25),
+            ("Cappuccino", "Boissons chaudes", "☕", 7000, 25),
+            ("Thé noir", "Boissons chaudes", "🫖", 4000, 30),
+            ("Thé vert", "Boissons chaudes", "🍵", 4500, 25),
+            ("Infusion", "Boissons chaudes", "🌿", 4500, 20),
+            ("Chocolat chaud", "Boissons chaudes", "🍫", 6500, 20),
+
+            # Bières et cidres
+            ("Bière 65 cl", "Bières", "🍺", 8000, 20),
+            ("Bière blonde 33 cl", "Bières", "🍺", 6000, 24),
+            ("Bière locale 33 cl", "Bières", "🍺", 5500, 24),
+            ("Bière sans alcool 33 cl", "Bières", "🍺", 6500, 12),
+            ("Bière brune 33 cl", "Bières", "🍺", 7000, 12),
+            ("Panaché 33 cl", "Bières", "🍺", 5500, 14),
+            ("Cidre 33 cl", "Bières", "🍎", 8000, 10),
+
+            # Vins
+            ("Verre de vin rouge", "Vins", "🍷", 12000, 20),
+            ("Verre de vin blanc", "Vins", "🥂", 12000, 20),
+            ("Verre de vin rosé", "Vins", "🍷", 12000, 20),
+            ("Bouteille vin rouge", "Vins", "🍷", 55000, 8),
+            ("Bouteille vin blanc", "Vins", "🥂", 55000, 8),
+            ("Bouteille vin rosé", "Vins", "🍷", 55000, 8),
+            ("Coupe de vin pétillant", "Vins", "🥂", 15000, 16),
+            ("Bouteille vin pétillant", "Vins", "🍾", 75000, 6),
+
+            # Spiritueux
+            ("Rhum local 4 cl", "Spiritueux", "🥃", 10000, 18),
+            ("Rhum arrangé 4 cl", "Spiritueux", "🥃", 12000, 16),
+            ("Whisky 4 cl", "Spiritueux", "🥃", 15000, 15),
+            ("Gin 4 cl", "Spiritueux", "🍸", 14000, 12),
+            ("Vodka 4 cl", "Spiritueux", "🍸", 14000, 12),
+            ("Tequila 4 cl", "Spiritueux", "🥃", 14000, 10),
+            ("Cognac 4 cl", "Spiritueux", "🥃", 18000, 8),
+            ("Liqueur 4 cl", "Spiritueux", "🍸", 12000, 10),
+
+            # Cocktails
+            ("Mojito", "Cocktails", "🍸", 18000, 20),
+            ("Piña Colada", "Cocktails", "🍍", 20000, 20),
+            ("Planteur tropical", "Cocktails", "🍹", 18000, 20),
+            ("Punch maison", "Cocktails", "🍹", 16000, 20),
+            ("Gin Tonic", "Cocktails", "🍸", 18000, 20),
+            ("Vodka Orange", "Cocktails", "🍊", 17000, 20),
+            ("Cuba Libre", "Cocktails", "🥃", 18000, 20),
+            ("Spritz", "Cocktails", "🍹", 22000, 16),
+            ("Virgin Mojito", "Cocktails sans alcool", "🌿", 12000, 20),
+            ("Cocktail fruits tropicaux", "Cocktails sans alcool", "🍹", 12000, 20),
+
+            # Snacks et petite restauration
+            ("Cacahuètes grillées", "Snacks", "🥜", 5000, 24),
+            ("Noix de cajou", "Snacks", "🥜", 8000, 18),
+            ("Chips", "Snacks", "🥔", 5000, 24),
+            ("Olives", "Snacks", "🫒", 7000, 14),
+            ("Sambos x4", "Snacks", "🥟", 8000, 20),
+            ("Mini sandwich", "Snacks", "🥪", 12000, 15),
+            ("Croque-monsieur", "Snacks", "🥪", 16000, 12),
+            ("Assiette de fruits", "Snacks", "🍉", 15000, 12),
+            ("Assiette de fromages", "Snacks", "🧀", 22000, 8),
+        ]
+
+        con.executemany(
+            """
+            INSERT OR IGNORE INTO bar_products(name, category, emoji, price, stock)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            default_bar_products,
+        )
 
         # Démonstration : deux vrais scénarios clients visibles dans le prototype.
         today_demo = date.today()
@@ -2349,14 +2444,45 @@ with tab_bar:
     b3.metric("🏆 Total encaissé", format_ar(bar_all))
     b4.metric("🧾 À régler en chambre", format_ar(bar_pending))
 
-    st.markdown("### 🥤 Carte des boissons")
-    products = rows(
+    st.markdown("### 🍹 Carte complète du bar")
+    all_products = rows(
         """
         SELECT id, name, category, emoji, price, stock
         FROM bar_products
         WHERE active = 1
         ORDER BY category, name
         """
+    )
+
+    categories = sorted({product["category"] for product in all_products})
+    category_filter = st.selectbox(
+        "📂 Catégorie",
+        ["Tous les produits"] + categories,
+        key="bar_category_filter",
+    )
+    product_search = st.text_input(
+        "🔎 Rechercher un produit",
+        placeholder="Ex. mojito, café, jus, chips…",
+        key="bar_product_search",
+    )
+
+    products = all_products
+    if category_filter != "Tous les produits":
+        products = [
+            product for product in products
+            if product["category"] == category_filter
+        ]
+    if product_search.strip():
+        needle = product_search.strip().lower()
+        products = [
+            product for product in products
+            if needle in product["name"].lower()
+            or needle in product["category"].lower()
+        ]
+
+    st.caption(
+        f"🍽️ {len(all_products)} produits enregistrés • "
+        f"{len(categories)} catégories • prix et stocks modifiables"
     )
 
     product_columns = st.columns(3)
@@ -2391,7 +2517,7 @@ with tab_bar:
     st.subheader("🛒 Nouvelle commande")
 
     available_products = [
-        product for product in products if int(product["stock"]) > 0
+        product for product in all_products if int(product["stock"]) > 0
     ]
 
     if available_products:
