@@ -312,6 +312,146 @@ st.markdown(
         .purple {background: rgba(124,58,237,.20);}
         .blue {background: rgba(59,130,246,.18);}
         .red {background: rgba(239,68,68,.18);}
+
+        /* Palmeria Mobile Manager */
+        .mobile-shell {
+            max-width: 620px;
+            margin: 0 auto;
+            padding-bottom: 92px;
+        }
+
+        .mobile-topbar {
+            padding: 18px 18px 16px;
+            border-radius: 22px;
+            margin-bottom: 14px;
+            color: white;
+            background:
+                linear-gradient(135deg, rgba(34,83,57,.96), rgba(22,119,117,.90)),
+                url("https://www.fortynine.co.jp/upimg/ho24476116190.jpg") center / cover no-repeat;
+            box-shadow: 0 14px 32px rgba(36,73,55,.22);
+        }
+
+        .mobile-topbar .brand {
+            font-family: Georgia, "Times New Roman", serif;
+            font-size: 1.55rem;
+            font-weight: 900;
+            letter-spacing: .04em;
+        }
+
+        .mobile-topbar .date {
+            margin-top: 6px;
+            opacity: .92;
+            font-size: .92rem;
+        }
+
+        .mobile-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+            margin: 10px 0 14px;
+        }
+
+        .mobile-stat {
+            padding: 14px;
+            border-radius: 18px;
+            border: 1px solid rgba(49,92,70,.12);
+            background: rgba(255,255,255,.82);
+            box-shadow: 0 8px 22px rgba(40,60,45,.07);
+        }
+
+        .mobile-stat .label {
+            font-size: .78rem;
+            color: #617066;
+            font-weight: 700;
+        }
+
+        .mobile-stat .value {
+            margin-top: 3px;
+            font-size: 1.18rem;
+            color: #234b38;
+            font-weight: 900;
+        }
+
+        .mobile-section-title {
+            margin: 18px 0 8px;
+            font-size: 1.03rem;
+            font-weight: 900;
+            color: #315c46;
+        }
+
+        .mobile-row-card {
+            padding: 12px 14px;
+            margin: 8px 0;
+            border-radius: 16px;
+            background: rgba(255,255,255,.88);
+            border: 1px solid rgba(22,119,117,.13);
+            box-shadow: 0 6px 18px rgba(40,60,45,.06);
+        }
+
+        .mobile-row-card .title {
+            font-weight: 900;
+            color: #25372d;
+        }
+
+        .mobile-row-card .meta {
+            margin-top: 3px;
+            font-size: .87rem;
+            color: #69766e;
+        }
+
+        .mobile-room {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            align-items: center;
+        }
+
+        .mobile-room .room-name {
+            font-weight: 900;
+            color: #25372d;
+        }
+
+        .mobile-room .guest {
+            font-size: .84rem;
+            color: #6b756f;
+            margin-top: 3px;
+        }
+
+        .mobile-badge {
+            white-space: nowrap;
+            padding: 6px 9px;
+            border-radius: 999px;
+            font-size: .76rem;
+            font-weight: 800;
+            background: rgba(49,92,70,.10);
+        }
+
+        @media (max-width: 700px) {
+            .block-container {
+                padding: .75rem .75rem 5rem .75rem;
+            }
+
+            .hero {
+                min-height: 190px;
+                padding: 18px;
+            }
+
+            .wood-logo .brand {
+                font-size: 1.35rem;
+            }
+
+            .mobile-grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+
+            [data-testid="stHorizontalBlock"] {
+                gap: .55rem;
+            }
+
+            div[data-testid="stDataFrame"] {
+                font-size: .82rem;
+            }
+        }
     </style>
     """,
     unsafe_allow_html=True,
@@ -1276,10 +1416,276 @@ def save_bar_ticket(cart, payment_method, room_id=None, client=""):
     return ticket
 
 
+def render_mobile_manager():
+    today = date.today()
+    room_data = rows("SELECT * FROM rooms ORDER BY name")
+    statuses = [
+        room_status(room["id"], room["maintenance"])
+        for room in room_data
+    ]
+
+    occupied_count = statuses.count("🔴 Occupée")
+    free_count = statuses.count("🟢 Libre")
+    reserved_count = statuses.count("🟠 Réservée")
+    day_total, _, month_total, _ = revenue_totals()
+    expense_day, _, expense_month, _ = expense_totals()
+    outstanding = outstanding_total()
+    arrivals, departures = today_movements()
+
+    st.markdown('<div class="mobile-shell">', unsafe_allow_html=True)
+    st.markdown(
+        f"""
+        <div class="mobile-topbar">
+            <div class="brand">🌴 PALMERIA MANAGER</div>
+            <div class="date">{today.strftime("%d/%m/%Y")} · Vue gérant</div>
+        </div>
+        <div class="mobile-grid">
+            <div class="mobile-stat">
+                <div class="label">🏨 Occupées</div>
+                <div class="value">{occupied_count}/{len(room_data)}</div>
+            </div>
+            <div class="mobile-stat">
+                <div class="label">🟢 Libres</div>
+                <div class="value">{free_count}</div>
+            </div>
+            <div class="mobile-stat">
+                <div class="label">💰 Aujourd’hui</div>
+                <div class="value">{format_ar(day_total)}</div>
+            </div>
+            <div class="mobile-stat">
+                <div class="label">⏳ À encaisser</div>
+                <div class="value">{format_ar(outstanding)}</div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.markdown('<div class="mobile-section-title">⚡ Actions rapides</div>', unsafe_allow_html=True)
+    quick_reservation, quick_payment = st.tabs(["➕ Réservation", "💳 Paiement"])
+
+    with quick_reservation:
+        available_rooms = rows(
+            """
+            SELECT id, name, nightly_rate
+            FROM rooms
+            WHERE maintenance = 0
+            ORDER BY name
+            """
+        )
+        if available_rooms:
+            mobile_room_labels = {
+                f'{room["name"]} — {format_ar(room["nightly_rate"])}': room
+                for room in available_rooms
+            }
+            mobile_room_label = st.selectbox(
+                "Chambre",
+                list(mobile_room_labels.keys()),
+                key="mobile_reservation_room",
+            )
+            selected_room = mobile_room_labels[mobile_room_label]
+
+            with st.form("mobile_new_reservation", clear_on_submit=True):
+                client = st.text_input("Nom du client", key="mobile_client")
+                phone = st.text_input("Téléphone", key="mobile_phone")
+                arrival = st.date_input(
+                    "Arrivée",
+                    value=today,
+                    key="mobile_arrival",
+                )
+                departure = st.date_input(
+                    "Départ",
+                    value=today + timedelta(days=1),
+                    key="mobile_departure",
+                )
+                save_mobile_reservation = st.form_submit_button(
+                    "✅ Enregistrer",
+                    type="primary",
+                    use_container_width=True,
+                )
+
+            if save_mobile_reservation:
+                clean_client = client.strip()
+                if not clean_client:
+                    st.error("Saisissez le nom du client.")
+                elif departure <= arrival:
+                    st.error("La date de départ doit être après l’arrivée.")
+                elif reservation_conflict(selected_room["id"], arrival, departure):
+                    st.error("Cette chambre est déjà réservée sur ces dates.")
+                else:
+                    nights = (departure - arrival).days
+                    total = nights * int(selected_room["nightly_rate"])
+                    run(
+                        """
+                        INSERT INTO reservations(
+                            room_id, client, phone, arrival, departure,
+                            nightly_rate, total, status
+                        )
+                        VALUES (?, ?, ?, ?, ?, ?, ?, 'Confirmée')
+                        """,
+                        (
+                            selected_room["id"],
+                            clean_client,
+                            phone.strip(),
+                            arrival.isoformat(),
+                            departure.isoformat(),
+                            int(selected_room["nightly_rate"]),
+                            total,
+                        ),
+                    )
+                    st.success(f"✅ Réservation enregistrée · {format_ar(total)}")
+                    st.rerun()
+        else:
+            st.info("Aucune chambre disponible.")
+
+    with quick_payment:
+        mobile_stays = rows(
+            """
+            SELECT r.id, r.client, r.total, rm.name AS room_name
+            FROM reservations r
+            JOIN rooms rm ON rm.id = r.room_id
+            WHERE r.status != 'Annulée' AND r.checked_out = 0
+            ORDER BY r.arrival, r.id
+            """
+        )
+        if mobile_stays:
+            stay_labels = {
+                f'R{item["id"]:03d} · {item["client"]} · {item["room_name"]}': item
+                for item in mobile_stays
+            }
+            stay_label = st.selectbox(
+                "Séjour",
+                list(stay_labels.keys()),
+                key="mobile_payment_stay",
+            )
+            selected_stay = stay_labels[stay_label]
+            already_paid = paid_for(selected_stay["id"])
+            remaining = max(int(selected_stay["total"]) - already_paid, 0)
+            st.caption(f"Reste hébergement : {format_ar(remaining)}")
+
+            with st.form("mobile_payment_form", clear_on_submit=True):
+                amount = st.number_input(
+                    "Montant (Ar)",
+                    min_value=0,
+                    value=int(remaining),
+                    step=5000,
+                )
+                method = st.selectbox(
+                    "Mode de paiement",
+                    ["Espèces", "MVola", "Orange Money", "Airtel Money", "Carte bancaire"],
+                )
+                save_mobile_payment = st.form_submit_button(
+                    "💳 Enregistrer le paiement",
+                    type="primary",
+                    use_container_width=True,
+                )
+
+            if save_mobile_payment:
+                if amount <= 0:
+                    st.error("Saisissez un montant supérieur à 0.")
+                else:
+                    run(
+                        """
+                        INSERT INTO payments(reservation_id, payment_date, amount, method)
+                        VALUES (?, ?, ?, ?)
+                        """,
+                        (
+                            selected_stay["id"],
+                            today.isoformat(),
+                            int(amount),
+                            method,
+                        ),
+                    )
+                    st.success("✅ Paiement enregistré.")
+                    st.rerun()
+        else:
+            st.info("Aucun séjour à encaisser.")
+
+    st.markdown('<div class="mobile-section-title">📍 Aujourd’hui</div>', unsafe_allow_html=True)
+    if arrivals:
+        for item in arrivals:
+            st.markdown(
+                f"""
+                <div class="mobile-row-card">
+                    <div class="title">🟢 Arrivée · {item["room_name"]}</div>
+                    <div class="meta">{item["client"]} · {item["phone"] or "Téléphone non renseigné"}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+    else:
+        st.caption("Aucune arrivée aujourd’hui.")
+
+    if departures:
+        for item in departures:
+            st.markdown(
+                f"""
+                <div class="mobile-row-card">
+                    <div class="title">🔵 Départ · {item["room_name"]}</div>
+                    <div class="meta">{item["client"]} · {item["phone"] or "Téléphone non renseigné"}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+    else:
+        st.caption("Aucun départ aujourd’hui.")
+
+    st.markdown('<div class="mobile-section-title">🛏️ Chambres</div>', unsafe_allow_html=True)
+    for room in room_data:
+        status = room_status(room["id"], room["maintenance"])
+        guest = active_guest_for_room(room["id"])
+        guest_line = guest if guest else "Aucun client en chambre"
+        st.markdown(
+            f"""
+            <div class="mobile-row-card mobile-room">
+                <div>
+                    <div class="room-name">{room["name"]}</div>
+                    <div class="guest">{guest_line}</div>
+                </div>
+                <div class="mobile-badge">{status}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    st.markdown('<div class="mobile-section-title">📊 Résumé financier</div>', unsafe_allow_html=True)
+    st.markdown(
+        f"""
+        <div class="mobile-grid">
+            <div class="mobile-stat">
+                <div class="label">Encaissements mois</div>
+                <div class="value">{format_ar(month_total)}</div>
+            </div>
+            <div class="mobile-stat">
+                <div class="label">Dépenses mois</div>
+                <div class="value">{format_ar(expense_month)}</div>
+            </div>
+            <div class="mobile-stat">
+                <div class="label">Résultat mois</div>
+                <div class="value">{format_ar(month_total - expense_month)}</div>
+            </div>
+            <div class="mobile-stat">
+                <div class="label">Réservées</div>
+                <div class="value">{reserved_count}</div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.caption("Palmeria Mobile Manager · mêmes données que la réception")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
 init_db()
 
 if "bar_cart" not in st.session_state:
     st.session_state.bar_cart = []
+
+mobile_mode = str(st.query_params.get("mobile", "0")).lower() in {"1", "true", "yes"}
+if mobile_mode:
+    render_mobile_manager()
+    st.stop()
 
 st.markdown(
     f"""
