@@ -26,6 +26,20 @@ BAR_IMAGES = {
     "Jus naturel ananas": "data:image/jpeg;base64,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",
 }
 
+BAR_CATEGORY_IMAGES = {
+    "Eaux": "https://commons.wikimedia.org/wiki/Special:FilePath/Bouteille%20d%E2%80%99eau.jpg",
+    "Sodas": "https://commons.wikimedia.org/wiki/Special:FilePath/Glass%20cola.jpg",
+    "Jus naturels": "https://commons.wikimedia.org/wiki/Special:FilePath/OrangeJuice.jpg",
+    "Jus bouteille": "https://commons.wikimedia.org/wiki/Special:FilePath/OrangeJuice.jpg",
+    "Boissons chaudes": "https://commons.wikimedia.org/wiki/Special:FilePath/Coffee%20in%20cup.jpg",
+    "Bières": "https://commons.wikimedia.org/wiki/Special:FilePath/Glass%20of%20Beer.jpg",
+    "Vins": "https://commons.wikimedia.org/wiki/Special:FilePath/Glass%20wine%20on%20table.jpg",
+    "Spiritueux": "https://commons.wikimedia.org/wiki/Special:FilePath/Glass%20of%20rum%20from%20R%C3%A9union.jpg",
+    "Cocktails": "https://commons.wikimedia.org/wiki/Special:FilePath/Cocktail-glass.jpg",
+    "Cocktails sans alcool": "https://commons.wikimedia.org/wiki/Special:FilePath/OrangeJuice.jpg",
+    "Snacks": "https://commons.wikimedia.org/wiki/Special:FilePath/Peanuts%20in%20a%20bowl.jpg",
+}
+
 st.set_page_config(
     page_title="Hôtel Palmeria",
     page_icon="🏨",
@@ -189,21 +203,24 @@ st.markdown(
         }
 
         .product-card {
-            min-height: 238px;
+            min-height: 330px;
             border-radius: 22px;
-            padding: 18px;
+            padding: 10px;
             margin-bottom: 12px;
             color: white;
             background: linear-gradient(145deg, #ff6b6b 0%, #f59e0b 45%, #7c3aed 100%);
             box-shadow: 0 12px 28px rgba(124,58,237,.18);
+            overflow: hidden;
         }
 
         .product-card img {
             width: 100%;
-            height: 125px;
+            height: 190px;
             object-fit: cover;
-            border-radius: 14px;
-            margin-bottom: 10px;
+            object-position: center;
+            border-radius: 16px;
+            margin-bottom: 12px;
+            display: block;
             background: white;
         }
 
@@ -2835,6 +2852,9 @@ with tab_bar:
         f"🍽️ {len(all_products)} produits enregistrés • "
         f"{len(categories)} catégories • prix et stocks modifiables"
     )
+    st.caption(
+        "📷 Photos illustratives pour la démonstration — chaque hôtel pourra remplacer ses visuels."
+    )
 
     product_columns = st.columns(3)
     for index, product in enumerate(products):
@@ -2844,7 +2864,10 @@ with tab_bar:
                 if int(product["stock"]) <= 5
                 else f'📦 Stock : {product["stock"]}'
             )
-            product_image = BAR_IMAGES.get(product["name"], "")
+            product_image = (
+                BAR_IMAGES.get(product["name"], "")
+                or BAR_CATEGORY_IMAGES.get(product["category"], "")
+            )
             image_html = (
                 f'<img src="{product_image}" alt="{product["name"]}">'
                 if product_image
