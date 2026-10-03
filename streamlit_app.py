@@ -207,10 +207,19 @@ st.markdown(
             background: white;
         }
 
-        .product-card .emoji {font-size: 1.6rem;}
-        .product-card .name {font-size: 1.05rem; font-weight: 850; margin-top: 5px;}
-        .product-card .price {font-size: 1rem; font-weight: 800; margin-top: 7px;}
-        .product-card .stock {font-size: .84rem; opacity: .92; margin-top: 4px;}
+        .product-card .emoji {font-size: 2rem; line-height: 1;}
+        .product-card .name {font-size: 1.05rem; font-weight: 850; margin-top: 8px;}
+        .product-card .category {
+            display: inline-block;
+            margin-top: 7px;
+            padding: 4px 8px;
+            border-radius: 999px;
+            font-size: .78rem;
+            font-weight: 700;
+            background: rgba(255,255,255,.18);
+        }
+        .product-card .price {font-size: 1.08rem; font-weight: 850; margin-top: 10px;}
+        .product-card .stock {font-size: .84rem; opacity: .94; margin-top: 5px;}
 
         .bar-banner {
             min-height: 150px;
@@ -2841,19 +2850,17 @@ with tab_bar:
                 if product_image
                 else ""
             )
-            st.markdown(
-                f"""
-                <div class="product-card">
-                    {image_html}
-                    <div class="emoji">{product["emoji"]}</div>
-                    <div class="name">{product["name"]}</div>
-                    <div>{product["category"]}</div>
-                    <div class="price">{format_ar(product["price"])}</div>
-                    <div class="stock">{stock_text}</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
+            product_card_html = (
+                f'<div class="product-card">'
+                f'{image_html}'
+                f'<div class="emoji">{product["emoji"]}</div>'
+                f'<div class="name">{product["name"]}</div>'
+                f'<div class="category">{product["category"]}</div>'
+                f'<div class="price">{format_ar(product["price"])}</div>'
+                f'<div class="stock">{stock_text}</div>'
+                f'</div>'
             )
+            st.markdown(product_card_html, unsafe_allow_html=True)
             if int(product["stock"]) > 0:
                 if st.button(
                     f'➕ Ajouter {product["emoji"]}',
