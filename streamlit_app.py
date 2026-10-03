@@ -1652,6 +1652,39 @@ def save_bar_ticket(cart, payment_method, room_id=None, client=""):
     return ticket
 
 
+def add_product_to_bar_cart(product, quantity=1):
+    quantity = int(quantity)
+    if quantity <= 0:
+        return
+
+    existing = next(
+        (
+            item
+            for item in st.session_state.bar_cart
+            if item["product_id"] == product["id"]
+        ),
+        None,
+    )
+
+    if existing:
+        new_quantity = int(existing["quantity"]) + quantity
+        if new_quantity > int(product["stock"]):
+            raise ValueError("Quantité supérieure au stock disponible.")
+        existing["quantity"] = new_quantity
+    else:
+        if quantity > int(product["stock"]):
+            raise ValueError("Quantité supérieure au stock disponible.")
+        st.session_state.bar_cart.append(
+            {
+                "product_id": product["id"],
+                "name": product["name"],
+                "emoji": product["emoji"],
+                "price": int(product["price"]),
+                "quantity": quantity,
+            }
+        )
+
+
 def render_mobile_manager():
     today = date.today()
     room_data = rows("SELECT * FROM rooms ORDER BY name")
@@ -2821,6 +2854,24 @@ with tab_bar:
                 """,
                 unsafe_allow_html=True,
             )
+            if int(product["stock"]) > 0:
+                if st.button(
+                    f'➕ Ajouter {product["emoji"]}',
+                    key=f'quick_add_product_{product["id"]}',
+                    use_container_width=True,
+                ):
+                    try:
+                        add_product_to_bar_cart(product, 1)
+                        st.rerun()
+                    except ValueError as exc:
+                        st.warning(str(exc))
+            else:
+                st.button(
+                    "Rupture de stock",
+                    key=f'quick_add_product_{product["id"]}',
+                    disabled=True,
+                    use_container_width=True,
+                )
 
     st.markdown("---")
     st.subheader("🛒 Nouvelle commande")
@@ -2854,32 +2905,11 @@ with tab_bar:
             )
 
         if st.button("➕ Ajouter au panier", key="bar_add_cart"):
-            existing = next(
-                (
-                    item
-                    for item in st.session_state.bar_cart
-                    if item["product_id"] == selected_product["id"]
-                ),
-                None,
-            )
-
-            if existing:
-                new_quantity = existing["quantity"] + int(bar_quantity)
-                if new_quantity > int(selected_product["stock"]):
-                    st.warning("Quantité supérieure au stock disponible.")
-                else:
-                    existing["quantity"] = new_quantity
-            else:
-                st.session_state.bar_cart.append(
-                    {
-                        "product_id": selected_product["id"],
-                        "name": selected_product["name"],
-                        "emoji": selected_product["emoji"],
-                        "price": int(selected_product["price"]),
-                        "quantity": int(bar_quantity),
-                    }
-                )
-            st.rerun()
+            try:
+                add_product_to_bar_cart(selected_product, bar_quantity)
+                st.rerun()
+            except ValueError as exc:
+                st.warning(str(exc))
     else:
         st.warning("Aucune boisson en stock.")
 
@@ -2907,43 +2937,102 @@ with tab_bar:
         )
         st.metric("🧾 Total de la commande", format_ar(cart_total))
 
+        st.markdown("##### Modifier le panier")
+        for item in list(st.session_state.bar_cart):
+            item_col, minus_col, qty_col, plus_col = st.columns([5, 1, 1.2, 1])
+            with item_col:
+                st.write(f'{item["emoji"]} **{item["name"]}**')
+            with minus_col:
+                if st.button(
+                    "−",
+                    key=f'cart_minus_{item["product_id"]}',
+                    use_container_width=True,
+                ):
+                    item["quantity"] = int(item["quantity"]) - 1
+                    if item["quantity"] <= 0:
+                        st.session_state.bar_cart = [
+                            cart_item
+                            for cart_item in st.session_state.bar_cart
+                            if cart_item["product_id"] != item["product_id"]
+                        ]
+                    st.rerun()
+            with qty_col:
+                st.markdown(
+                    f'<div style="text-align:center;padding-top:.45rem;font-weight:800;">{item["quantity"]}</div>',
+                    unsafe_allow_html=True,
+                )
+            with plus_col:
+                product_ref = next(
+                    (
+                        product
+                        for product in all_products
+                        if product["id"] == item["product_id"]
+                    ),
+                    None,
+                )
+                if st.button(
+                    "+",
+                    key=f'cart_plus_{item["product_id"]}',
+                    use_container_width=True,
+                    disabled=(
+                        product_ref is None
+                        or int(item["quantity"]) >= int(product_ref["stock"])
+                    ),
+                ):
+                    if product_ref:
+                        try:
+                            add_product_to_bar_cart(product_ref, 1)
+                            st.rerun()
+                        except ValueError as exc:
+                            st.warning(str(exc))
+
         if st.button("🗑️ Vider le panier", key="bar_clear_cart"):
             st.session_state.bar_cart = []
             st.rerun()
 
-        st.markdown("#### 💳 Encaisser / mettre sur la chambre")
-        destination = st.radio(
-            "Destination",
-            ["Comptoir", "Chambre"],
+        st.markdown("#### 👤 Qui commande ?")
+        customer_type = st.radio(
+            "Type de client",
+            [
+                "🏨 Client hébergé (chambre)",
+                "🍹 Client extérieur / bar",
+            ],
             horizontal=True,
-            key="bar_destination",
+            key="bar_customer_type",
         )
 
         room_id = None
         guest_name = ""
 
-        if destination == "Chambre":
+        if customer_type == "🏨 Client hébergé (chambre)":
             occupied_rooms = [
                 room
-                for room in rows("SELECT id, name, maintenance FROM rooms ORDER BY name")
+                for room in rows(
+                    "SELECT id, name, maintenance FROM rooms ORDER BY name"
+                )
                 if room_status(room["id"], room["maintenance"]) == "🔴 Occupée"
             ]
 
             if occupied_rooms:
                 room_labels = {
-                    room["name"]: room for room in occupied_rooms
+                    f'{room["name"]} — {active_guest_for_room(room["id"]) or "Client"}': room
+                    for room in occupied_rooms
                 }
                 selected_room_name = st.selectbox(
-                    "Chambre",
+                    "🏨 Choisir la chambre",
                     list(room_labels.keys()),
                     key="bar_room_select",
                 )
                 room_id = room_labels[selected_room_name]["id"]
                 guest_name = active_guest_for_room(room_id)
                 if guest_name:
-                    st.info(f"👤 Client : **{guest_name}**")
+                    st.success(f"👤 Client hébergé : **{guest_name}**")
             else:
                 st.warning("Aucune chambre occupée actuellement.")
+        else:
+            st.info(
+                "🍹 Vente directe au bar : cette commande n'est liée à aucune chambre."
+            )
 
         payment_options = [
             "Espèces",
@@ -2952,20 +3041,26 @@ with tab_bar:
             "Airtel Money",
             "Carte bancaire",
         ]
-        if destination == "Chambre":
+        if customer_type == "🏨 Client hébergé (chambre)" and room_id is not None:
             payment_options.append("Ajouter à la chambre")
 
         bar_payment_method = st.selectbox(
-            "Mode de règlement",
+            "💳 Mode de règlement",
             payment_options,
             key="bar_payment_method",
         )
 
-        manual_client = st.text_input(
-            "Nom du client (facultatif)",
-            value=guest_name,
-            key="bar_client_name",
-        )
+        if customer_type == "🍹 Client extérieur / bar":
+            manual_client = st.text_input(
+                "Nom du client extérieur (facultatif)",
+                placeholder="Ex. Client bar, Rakoto...",
+                key="bar_client_name",
+            )
+        else:
+            manual_client = guest_name
+            st.caption(
+                "La commande sera enregistrée au nom du client de la chambre sélectionnée."
+            )
 
         if st.button(
             "✅ Valider la commande",
@@ -2973,7 +3068,10 @@ with tab_bar:
             use_container_width=True,
             key="bar_validate_order",
         ):
-            if destination == "Chambre" and room_id is None:
+            if (
+                customer_type == "🏨 Client hébergé (chambre)"
+                and room_id is None
+            ):
                 st.error("Sélectionnez une chambre occupée.")
             elif bar_payment_method == "Ajouter à la chambre" and room_id is None:
                 st.error("Une note de chambre doit être liée à une chambre.")
@@ -3137,7 +3235,7 @@ with tab_bar:
                 {
                     "Ticket": item["ticket"],
                     "Date": item["sale_date"],
-                    "Destination": item["room_name"] or "Comptoir",
+                    "Destination": item["room_name"] or "🍹 Client extérieur / bar",
                     "Client": item["client"] or "-",
                     "Total": format_ar(item["total"]),
                     "Règlement": item["payment_method"],
