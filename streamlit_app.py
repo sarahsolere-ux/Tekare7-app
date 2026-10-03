@@ -473,7 +473,16 @@ def init_db():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL UNIQUE,
                 nightly_rate INTEGER NOT NULL DEFAULT 0,
-                maintenance INTEGER NOT NULL DEFAULT 0
+                maintenance INTEGER NOT NULL DEFAULT 0,
+                room_type TEXT NOT NULL DEFAULT 'Double',
+                capacity_adults INTEGER NOT NULL DEFAULT 2,
+                capacity_children INTEGER NOT NULL DEFAULT 0,
+                bed_type TEXT NOT NULL DEFAULT 'Lit double',
+                floor TEXT NOT NULL DEFAULT 'RDC',
+                view_type TEXT NOT NULL DEFAULT 'Jardin',
+                amenities TEXT NOT NULL DEFAULT 'Wi-Fi|Douche|TV',
+                housekeeping_status TEXT NOT NULL DEFAULT 'Prête',
+                notes TEXT NOT NULL DEFAULT ''
             );
 
             CREATE TABLE IF NOT EXISTS reservations (
@@ -552,6 +561,26 @@ def init_db():
             """
         )
 
+        room_columns = {
+            item[1] for item in con.execute("PRAGMA table_info(rooms)").fetchall()
+        }
+        room_migrations = {
+            "room_type": "TEXT NOT NULL DEFAULT 'Double'",
+            "capacity_adults": "INTEGER NOT NULL DEFAULT 2",
+            "capacity_children": "INTEGER NOT NULL DEFAULT 0",
+            "bed_type": "TEXT NOT NULL DEFAULT 'Lit double'",
+            "floor": "TEXT NOT NULL DEFAULT 'RDC'",
+            "view_type": "TEXT NOT NULL DEFAULT 'Jardin'",
+            "amenities": "TEXT NOT NULL DEFAULT 'Wi-Fi|Douche|TV'",
+            "housekeeping_status": "TEXT NOT NULL DEFAULT 'Prête'",
+            "notes": "TEXT NOT NULL DEFAULT ''",
+        }
+        for column_name, column_definition in room_migrations.items():
+            if column_name not in room_columns:
+                con.execute(
+                    f"ALTER TABLE rooms ADD COLUMN {column_name} {column_definition}"
+                )
+
         reservation_columns = {
             item[1] for item in con.execute("PRAGMA table_info(reservations)").fetchall()
         }
@@ -600,6 +629,46 @@ def init_db():
                     ("Chambre 102", 120000),
                     ("Chambre 103", 180000),
                 ],
+            )
+
+        # Fiches chambres de démonstration, sans écraser les réglages déjà personnalisés.
+        room_demo_profiles = [
+            (
+                "Chambre 101", "Double Deluxe", 2, 0, "Queen Size",
+                "RDC", "Jardin tropical",
+                "Wi-Fi|Climatisation|TV|Douche|Minibar|Coffre-fort|Terrasse"
+            ),
+            (
+                "Chambre 102", "Double Confort", 2, 1, "Lit double",
+                "1er étage", "Cour tropicale",
+                "Wi-Fi|Ventilateur|TV|Douche|Bureau"
+            ),
+            (
+                "Chambre 103", "Suite Familiale", 3, 1, "King + canapé-lit",
+                "1er étage", "Jardin",
+                "Wi-Fi|Climatisation|TV|Douche|Minibar|Coffre-fort|Balcon|Bouilloire"
+            ),
+        ]
+        for (
+            room_name, room_type, adults, children, bed_type, floor,
+            view_type, amenities
+        ) in room_demo_profiles:
+            con.execute(
+                """
+                UPDATE rooms
+                SET room_type = CASE WHEN room_type = 'Double' THEN ? ELSE room_type END,
+                    capacity_adults = CASE WHEN capacity_adults = 2 THEN ? ELSE capacity_adults END,
+                    capacity_children = CASE WHEN capacity_children = 0 THEN ? ELSE capacity_children END,
+                    bed_type = CASE WHEN bed_type = 'Lit double' THEN ? ELSE bed_type END,
+                    floor = CASE WHEN floor = 'RDC' THEN ? ELSE floor END,
+                    view_type = CASE WHEN view_type = 'Jardin' THEN ? ELSE view_type END,
+                    amenities = CASE WHEN amenities = 'Wi-Fi|Douche|TV' THEN ? ELSE amenities END
+                WHERE name = ?
+                """,
+                (
+                    room_type, adults, children, bed_type, floor,
+                    view_type, amenities, room_name
+                ),
             )
 
         # Carte complète d'un bar d'hôtel. INSERT OR IGNORE permet d'ajouter
@@ -868,6 +937,22 @@ def room_status(room_id, maintenance):
     if maintenance:
         return "🛠️ Maintenance"
 
+    room = one(
+        "SELECT housekeeping_status FROM rooms WHERE id = ?",
+        (room_id,),
+    )
+    housekeeping = (
+        room["housekeeping_status"]
+        if room and room.get("housekeeping_status")
+        else "Prête"
+    )
+    if housekeeping == "À nettoyer":
+        return "🧹 À nettoyer"
+    if housekeeping == "En nettoyage":
+        return "🧽 En nettoyage"
+    if housekeeping == "Hors service":
+        return "🚫 Hors service"
+
     today = date.today().isoformat()
 
     current = one(
@@ -904,18 +989,65 @@ def room_status(room_id, maintenance):
     return "🟢 Libre"
 
 
+def current_room_stay(room_id):
+    today = date.today().isoformat()
+    return one(
+        """
+        SELECT r.id, r.client, r.arrival, r.departure, r.total,
+               r.checked_in, r.phone
+        FROM reservations r
+        WHERE r.room_id = ?
+          AND r.status != 'Annulée'
+          AND r.checked_out = 0
+          AND (r.checked_in = 1 OR (r.arrival <= ? AND r.departure > ?))
+        ORDER BY r.checked_in DESC, r.arrival
+        LIMIT 1
+        """,
+        (room_id, today, today),
+    )
+
+
+def next_room_booking(room_id):
+    today = date.today().isoformat()
+    return one(
+        """
+        SELECT id, client, arrival, departure
+        FROM reservations
+        WHERE room_id = ?
+          AND status != 'Annulée'
+          AND checked_out = 0
+          AND arrival > ?
+        ORDER BY arrival
+        LIMIT 1
+        """,
+        (room_id, today),
+    )
+
+
 def room_view():
     data = []
     for room in rows("SELECT * FROM rooms ORDER BY name"):
+        current = current_room_stay(room["id"])
+        upcoming = next_room_booking(room["id"])
+        capacity = f'{room["capacity_adults"]} ad.'
+        if int(room["capacity_children"] or 0) > 0:
+            capacity += f' + {room["capacity_children"]} enf.'
         data.append(
             {
                 "Chambre": room["name"],
+                "Type": room["room_type"],
+                "Capacité": capacity,
+                "Lit": room["bed_type"],
+                "Étage": room["floor"],
+                "Vue": room["view_type"],
                 "Tarif / nuit": format_ar(room["nightly_rate"]),
                 "Statut": room_status(room["id"], room["maintenance"]),
+                "Client actuel": current["client"] if current else "-",
+                "Prochaine arrivée": upcoming["arrival"] if upcoming else "-",
+                "Ménage": room["housekeeping_status"],
             }
         )
     return data
-
 
 def reservation_conflict(room_id, arrival, departure):
     return one(
@@ -1448,6 +1580,15 @@ def close_reservation_invoice(reservation_id, payment_method):
             (invoice_number, reservation_id),
         )
 
+        con.execute(
+            """
+            UPDATE rooms
+            SET housekeeping_status = 'À nettoyer'
+            WHERE id = ?
+            """,
+            (reservation["room_id"],),
+        )
+
         con.commit()
 
     return invoice_number
@@ -1918,14 +2059,35 @@ with tab_rooms:
             with photo_cols[index]:
                 image_url = ROOM_IMAGES[index % len(ROOM_IMAGES)]
                 status = room_status(room["id"], room["maintenance"])
+                current = current_room_stay(room["id"])
+                upcoming = next_room_booking(room["id"])
+                amenities = [
+                    item for item in (room["amenities"] or "").split("|") if item
+                ]
+                amenities_preview = " · ".join(amenities[:5]) or "Équipements à renseigner"
+                guest_line = (
+                    f'👤 {current["client"]} · départ {current["departure"]}'
+                    if current
+                    else "👤 Aucun client en chambre"
+                )
+                next_line = (
+                    f'📅 Prochaine arrivée : {upcoming["arrival"]} · {upcoming["client"]}'
+                    if upcoming
+                    else "📅 Aucune arrivée à venir"
+                )
                 st.markdown(
                     f"""
                     <div class="room-photo-card">
                         <img src="{image_url}" alt="{room["name"]}">
                         <div class="body">
-                            <div class="title">{room["name"]}</div>
-                            <div>{status}</div>
-                            <div><b>{format_ar(room["nightly_rate"])}</b> / nuit</div>
+                            <div class="title">{room["name"]} · {room["room_type"]}</div>
+                            <div>{status} · 🧹 {room["housekeeping_status"]}</div>
+                            <div style="margin-top:5px;">🛏️ {room["bed_type"]} · 👥 {room["capacity_adults"]} adulte(s) + {room["capacity_children"]} enfant(s)</div>
+                            <div>🏢 {room["floor"]} · 👀 {room["view_type"]}</div>
+                            <div style="margin-top:5px;">{guest_line}</div>
+                            <div>{next_line}</div>
+                            <div style="margin-top:5px;font-size:.86rem;">✨ {amenities_preview}</div>
+                            <div style="margin-top:7px;"><b>{format_ar(room["nightly_rate"])}</b> / nuit</div>
                         </div>
                     </div>
                     """,
@@ -2004,6 +2166,143 @@ with tab_rooms:
                         (selected_room["id"],),
                     )
                     st.rerun()
+
+    st.markdown("---")
+    st.markdown("#### 🧹 État ménage & disponibilité")
+    housekeeping_rooms = rows("SELECT * FROM rooms ORDER BY name")
+    if housekeeping_rooms:
+        housekeeping_labels = {room["name"]: room for room in housekeeping_rooms}
+        housekeeping_label = st.selectbox(
+            "Chambre à mettre à jour",
+            list(housekeeping_labels.keys()),
+            key="housekeeping_room_select",
+        )
+        housekeeping_room = housekeeping_labels[housekeeping_label]
+        housekeeping_choices = ["Prête", "À nettoyer", "En nettoyage", "Hors service"]
+        current_housekeeping = (
+            housekeeping_room["housekeeping_status"]
+            if housekeeping_room["housekeeping_status"] in housekeeping_choices
+            else "Prête"
+        )
+        housekeeping_status = st.selectbox(
+            "État de la chambre",
+            housekeeping_choices,
+            index=housekeeping_choices.index(current_housekeeping),
+            key="housekeeping_status_select",
+        )
+        if st.button(
+            "💾 Mettre à jour l’état",
+            use_container_width=True,
+            key="save_housekeeping_status",
+        ):
+            run(
+                "UPDATE rooms SET housekeeping_status = ? WHERE id = ?",
+                (housekeeping_status, housekeeping_room["id"]),
+            )
+            st.success("✅ État de la chambre mis à jour.")
+            st.rerun()
+
+    st.markdown("---")
+    st.markdown("#### 🛏️ Fiche détaillée de la chambre")
+    detail_rooms = rows("SELECT * FROM rooms ORDER BY name")
+    if detail_rooms:
+        detail_labels = {room["name"]: room for room in detail_rooms}
+        detail_label = st.selectbox(
+            "Chambre à personnaliser",
+            list(detail_labels.keys()),
+            key="room_details_select",
+        )
+        detail_room = detail_labels[detail_label]
+
+        room_type_options = [
+            "Simple", "Double", "Double Confort", "Double Deluxe",
+            "Twin", "Triple", "Familiale", "Suite", "Suite Familiale"
+        ]
+        bed_options = [
+            "Lit simple", "Lit double", "Queen Size", "King Size",
+            "2 lits simples", "King + canapé-lit", "Lits superposés"
+        ]
+        amenity_options = [
+            "Wi-Fi", "Climatisation", "Ventilateur", "TV", "Douche",
+            "Baignoire", "Minibar", "Coffre-fort", "Balcon", "Terrasse",
+            "Bureau", "Bouilloire", "Réfrigérateur", "Sèche-cheveux",
+            "Lit bébé", "Accessible PMR"
+        ]
+        current_amenities = [
+            item for item in (detail_room["amenities"] or "").split("|") if item
+        ]
+
+        with st.form("room_details_form"):
+            c1, c2 = st.columns(2)
+            with c1:
+                room_type = st.selectbox(
+                    "Type",
+                    room_type_options,
+                    index=room_type_options.index(detail_room["room_type"])
+                    if detail_room["room_type"] in room_type_options else 1,
+                )
+                adults = st.number_input(
+                    "Capacité adultes",
+                    min_value=1,
+                    max_value=10,
+                    value=int(detail_room["capacity_adults"]),
+                    step=1,
+                )
+                bed_type = st.selectbox(
+                    "Type de lit",
+                    bed_options,
+                    index=bed_options.index(detail_room["bed_type"])
+                    if detail_room["bed_type"] in bed_options else 1,
+                )
+                floor = st.text_input(
+                    "Étage / emplacement",
+                    value=detail_room["floor"],
+                )
+            with c2:
+                children = st.number_input(
+                    "Capacité enfants",
+                    min_value=0,
+                    max_value=10,
+                    value=int(detail_room["capacity_children"]),
+                    step=1,
+                )
+                view_type = st.text_input(
+                    "Vue",
+                    value=detail_room["view_type"],
+                )
+                notes = st.text_area(
+                    "Notes internes",
+                    value=detail_room["notes"] or "",
+                    placeholder="Ex. lit bébé demandé, ampoule à changer…",
+                )
+
+            amenities = st.multiselect(
+                "Équipements",
+                amenity_options,
+                default=[a for a in current_amenities if a in amenity_options],
+            )
+            save_room_details = st.form_submit_button(
+                "💾 Enregistrer la fiche chambre",
+                type="primary",
+                use_container_width=True,
+            )
+
+        if save_room_details:
+            run(
+                """
+                UPDATE rooms
+                SET room_type = ?, capacity_adults = ?, capacity_children = ?,
+                    bed_type = ?, floor = ?, view_type = ?, amenities = ?, notes = ?
+                WHERE id = ?
+                """,
+                (
+                    room_type, int(adults), int(children), bed_type,
+                    floor.strip(), view_type.strip(), "|".join(amenities),
+                    notes.strip(), detail_room["id"],
+                ),
+            )
+            st.success("✅ Fiche chambre enregistrée.")
+            st.rerun()
 
     st.markdown("---")
     st.markdown("#### ✏️ Modifier le tarif d’une chambre")
@@ -2253,7 +2552,15 @@ with tab_reservations:
                             """,
                             (stay["id"],),
                         )
-                        st.success("✅ Check-out enregistré.")
+                        run(
+                            """
+                            UPDATE rooms
+                            SET housekeeping_status = 'À nettoyer'
+                            WHERE id = ?
+                            """,
+                            (stay["room_id"],),
+                        )
+                        st.success("✅ Check-out enregistré. Chambre passée en 🧹 À nettoyer.")
                         st.rerun()
             else:
                 st.info("Le check-in doit être fait avant le check-out.")
@@ -2298,6 +2605,8 @@ with tab_planning:
             <span class="orange">🟠 Réservée</span>
             <span class="purple">🟣 En séjour</span>
             <span class="red">🛠️ Maintenance</span>
+            <span class="orange">🧹 À nettoyer</span>
+            <span class="blue">🧽 En nettoyage</span>
         </div>
         """,
         unsafe_allow_html=True,
