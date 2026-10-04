@@ -192,7 +192,7 @@ st.markdown(
             border: 1px solid rgba(255,255,255,.16);
             border-radius: 18px;
             padding: 15px 16px;
-            background: linear-gradient(135deg, rgba(124,58,237,.20), rgba(0,180,216,.12));
+            background: linear-gradient(135deg, rgba(49,92,70,.10), rgba(183,130,69,.06));
             box-shadow: 0 8px 22px rgba(0,0,0,.08);
         }
 
@@ -200,10 +200,10 @@ st.markdown(
         [data-testid="stMetricValue"] {font-weight: 800;}
 
         div[data-testid="stForm"] {
-            border: 1px solid rgba(255, 77, 109, .35);
+            border: 1px solid rgba(49,92,70,.16);
             border-radius: 20px;
             padding: 20px;
-            background: linear-gradient(145deg, rgba(255,77,109,.08), rgba(124,58,237,.08));
+            background: linear-gradient(145deg, rgba(49,92,70,.055), rgba(183,130,69,.035));
         }
 
         div[data-baseweb="tab-list"] {
@@ -219,15 +219,15 @@ st.markdown(
             font-weight: 700;
         }
 
-        div[data-baseweb="tab-list"] button:nth-child(1) {background: rgba(124,58,237,.18);}
-        div[data-baseweb="tab-list"] button:nth-child(2) {background: rgba(0,180,216,.18);}
-        div[data-baseweb="tab-list"] button:nth-child(3) {background: rgba(255,183,3,.18);}
-        div[data-baseweb="tab-list"] button:nth-child(4) {background: rgba(16,185,129,.18);}
-        div[data-baseweb="tab-list"] button:nth-child(5) {background: rgba(236,72,153,.18);}
-        div[data-baseweb="tab-list"] button:nth-child(6) {background: rgba(59,130,246,.18);}
-        div[data-baseweb="tab-list"] button:nth-child(7) {background: rgba(249,115,22,.18);}
-        div[data-baseweb="tab-list"] button:nth-child(8) {background: rgba(6,182,212,.20);}
-        div[data-baseweb="tab-list"] button:nth-child(9) {background: rgba(14,165,233,.20);}
+        div[data-baseweb="tab-list"] button:nth-child(1) {background: rgba(49,92,70,.10);}
+        div[data-baseweb="tab-list"] button:nth-child(2) {background: rgba(76,116,86,.10);}
+        div[data-baseweb="tab-list"] button:nth-child(3) {background: rgba(183,130,69,.08);}
+        div[data-baseweb="tab-list"] button:nth-child(4) {background: rgba(49,92,70,.08);}
+        div[data-baseweb="tab-list"] button:nth-child(5) {background: rgba(76,116,86,.08);}
+        div[data-baseweb="tab-list"] button:nth-child(6) {background: rgba(49,92,70,.09);}
+        div[data-baseweb="tab-list"] button:nth-child(7) {background: rgba(183,130,69,.07);}
+        div[data-baseweb="tab-list"] button:nth-child(8) {background: rgba(76,116,86,.09);}
+        div[data-baseweb="tab-list"] button:nth-child(9) {background: rgba(49,92,70,.09);}
 
         .invoice-card {
             border-radius: 24px;
@@ -387,9 +387,9 @@ st.markdown(
             border: none;
             border-radius: 12px;
             font-weight: 800;
-            background: linear-gradient(90deg, #ff4d6d, #7c3aed);
+            background: linear-gradient(90deg, #315c46, #456f59);
             color: white;
-            box-shadow: 0 8px 20px rgba(124,58,237,.22);
+            box-shadow: 0 7px 18px rgba(49,92,70,.16);
         }
 
         div.stButton > button:hover,
@@ -406,7 +406,7 @@ st.markdown(
         }
 
         [data-testid="stDataFrame"] {
-            border: 1px solid rgba(0,180,216,.25);
+            border: 1px solid rgba(49,92,70,.16);
             border-radius: 16px;
             overflow: hidden;
         }
