@@ -276,27 +276,27 @@ st.markdown(
 
         .product-card {
             min-height: 360px;
-            border-radius: 22px;
-            padding: 12px;
+            border-radius: 14px;
+            padding: 8px 8px 12px 8px;
             margin-bottom: 14px;
             color: #24362d;
-            background: rgba(255,255,255,.94);
-            border: 1px solid rgba(49,92,70,.13);
-            box-shadow: 0 10px 24px rgba(36,54,45,.09);
+            background: rgba(255,255,255,.72);
+            border: none;
+            box-shadow: 0 4px 14px rgba(36,54,45,.05);
             overflow: hidden;
         }
 
         .product-photo {
             width: 100%;
-            height: 210px;
-            border-radius: 16px;
+            height: 220px;
+            border-radius: 10px;
             margin-bottom: 12px;
             background-image: url("https://raw.githubusercontent.com/sarahsolere-ux/Tekare7-app/main/assets/bar/palmeria_bar_sprite.jpg");
             background-size: 500% 200%;
             background-repeat: no-repeat;
-            background-color: #f4f2ec;
-            border: 1px solid rgba(49,92,70,.08);
-            box-shadow: 0 5px 14px rgba(36,54,45,.06);
+            background-color: #f7f5ef;
+            border: none;
+            box-shadow: none;
         }
 
         .product-card .emoji {font-size: 1.45rem; line-height: 1;}
