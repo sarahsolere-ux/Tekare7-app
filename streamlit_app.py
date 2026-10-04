@@ -27,17 +27,19 @@ BAR_IMAGES = {
 }
 
 BAR_CATEGORY_IMAGES = {
-    "Eaux": "https://commons.wikimedia.org/wiki/Special:FilePath/Bouteille%20d%E2%80%99eau.jpg",
-    "Sodas": "https://commons.wikimedia.org/wiki/Special:FilePath/Glass%20cola.jpg",
-    "Jus naturels": "https://commons.wikimedia.org/wiki/Special:FilePath/OrangeJuice.jpg",
-    "Jus bouteille": "https://commons.wikimedia.org/wiki/Special:FilePath/OrangeJuice.jpg",
-    "Boissons chaudes": "https://commons.wikimedia.org/wiki/Special:FilePath/Coffee%20in%20cup.jpg",
-    "Bières": "https://commons.wikimedia.org/wiki/Special:FilePath/Glass%20of%20Beer.jpg",
-    "Vins": "https://commons.wikimedia.org/wiki/Special:FilePath/Glass%20wine%20on%20table.jpg",
-    "Spiritueux": "https://commons.wikimedia.org/wiki/Special:FilePath/Glass%20of%20rum%20from%20R%C3%A9union.jpg",
-    "Cocktails": "https://commons.wikimedia.org/wiki/Special:FilePath/Cocktail-glass.jpg",
-    "Cocktails sans alcool": "https://commons.wikimedia.org/wiki/Special:FilePath/OrangeJuice.jpg",
-    "Snacks": "https://commons.wikimedia.org/wiki/Special:FilePath/Peanuts%20in%20a%20bowl.jpg",
+    # On réutilise uniquement les visuels Palmeria déjà intégrés et harmonisés.
+    # Cela évite les photos externes disparates ou cassées dans la carte du bar.
+    "Eaux": BAR_IMAGES["Eau minérale 1 L"],
+    "Sodas": BAR_IMAGES["Coca-Cola 50 cl"],
+    "Jus naturels": BAR_IMAGES["Jus naturel mangue"],
+    "Jus bouteille": BAR_IMAGES["Jus naturel ananas"],
+    "Bières": BAR_IMAGES["Bière 65 cl"],
+    "Boissons chaudes": "",
+    "Vins": "",
+    "Spiritueux": "",
+    "Cocktails": "",
+    "Cocktails sans alcool": BAR_IMAGES["Jus naturel ananas"],
+    "Snacks": "",
 }
 
 st.set_page_config(
@@ -222,6 +224,36 @@ st.markdown(
             margin-bottom: 12px;
             display: block;
             background: white;
+        }
+
+        .product-visual-placeholder {
+            height: 190px;
+            border-radius: 16px;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            gap: 8px;
+            background:
+                radial-gradient(circle at 30% 20%, rgba(255,255,255,.32), transparent 28%),
+                linear-gradient(145deg, rgba(49,92,70,.92), rgba(183,130,69,.88));
+            border: 1px solid rgba(255,255,255,.22);
+            color: white;
+            text-align: center;
+        }
+
+        .product-visual-placeholder .big-emoji {
+            font-size: 3.4rem;
+            line-height: 1;
+        }
+
+        .product-visual-placeholder .visual-label {
+            font-size: .78rem;
+            font-weight: 800;
+            letter-spacing: .08em;
+            text-transform: uppercase;
+            opacity: .92;
         }
 
         .product-card .emoji {font-size: 2rem; line-height: 1;}
@@ -3218,7 +3250,7 @@ with tab_bar:
         f"{len(categories)} catégories • prix et stocks modifiables"
     )
     st.caption(
-        "📷 Photos illustratives pour la démonstration — chaque hôtel pourra remplacer ses visuels."
+        "📷 Visuels harmonisés Palmeria — les photos tropicales intégrées sont privilégiées pour une carte plus cohérente."
     )
 
     product_columns = st.columns(3)
@@ -3236,7 +3268,12 @@ with tab_bar:
             image_html = (
                 f'<img src="{product_image}" alt="{product["name"]}">'
                 if product_image
-                else ""
+                else (
+                    f'<div class="product-visual-placeholder">'
+                    f'<div class="big-emoji">{product["emoji"]}</div>'
+                    f'<div class="visual-label">{product["category"]}</div>'
+                    f'</div>'
+                )
             )
             product_card_html = (
                 f'<div class="product-card">'
