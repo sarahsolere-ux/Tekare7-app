@@ -1734,239 +1734,604 @@ def render_mobile_manager():
             <div class="brand">🌴 PALMERIA MANAGER</div>
             <div class="date">{today.strftime("%d/%m/%Y")} · Vue gérant</div>
         </div>
-        <div class="mobile-grid">
-            <div class="mobile-stat">
-                <div class="label">🏨 Occupées</div>
-                <div class="value">{occupied_count}/{len(room_data)}</div>
-            </div>
-            <div class="mobile-stat">
-                <div class="label">🟢 Libres</div>
-                <div class="value">{free_count}</div>
-            </div>
-            <div class="mobile-stat">
-                <div class="label">💰 Aujourd’hui</div>
-                <div class="value">{format_ar(day_total)}</div>
-            </div>
-            <div class="mobile-stat">
-                <div class="label">⏳ À encaisser</div>
-                <div class="value">{format_ar(outstanding)}</div>
-            </div>
-        </div>
         """,
         unsafe_allow_html=True,
     )
 
-    st.markdown('<div class="mobile-section-title">⚡ Actions rapides</div>', unsafe_allow_html=True)
-    quick_reservation, quick_payment = st.tabs(["➕ Réservation", "💳 Paiement"])
+    mobile_nav = st.radio(
+        "Navigation",
+        ["🏠 Accueil", "🛏️ Chambres", "📅 Réservations", "🍹 Bar", "💰 Finances"],
+        horizontal=True,
+        label_visibility="collapsed",
+        key="mobile_nav",
+    )
 
-    with quick_reservation:
-        available_rooms = rows(
-            """
-            SELECT id, name, nightly_rate
-            FROM rooms
-            WHERE maintenance = 0
-            ORDER BY name
-            """
-        )
-        if available_rooms:
-            mobile_room_labels = {
-                f'{room["name"]} — {format_ar(room["nightly_rate"])}': room
-                for room in available_rooms
-            }
-            mobile_room_label = st.selectbox(
-                "Chambre",
-                list(mobile_room_labels.keys()),
-                key="mobile_reservation_room",
-            )
-            selected_room = mobile_room_labels[mobile_room_label]
-
-            with st.form("mobile_new_reservation", clear_on_submit=True):
-                client = st.text_input("Nom du client", key="mobile_client")
-                phone = st.text_input("Téléphone", key="mobile_phone")
-                arrival = st.date_input(
-                    "Arrivée",
-                    value=today,
-                    key="mobile_arrival",
-                )
-                departure = st.date_input(
-                    "Départ",
-                    value=today + timedelta(days=1),
-                    key="mobile_departure",
-                )
-                save_mobile_reservation = st.form_submit_button(
-                    "✅ Enregistrer",
-                    type="primary",
-                    use_container_width=True,
-                )
-
-            if save_mobile_reservation:
-                clean_client = client.strip()
-                if not clean_client:
-                    st.error("Saisissez le nom du client.")
-                elif departure <= arrival:
-                    st.error("La date de départ doit être après l’arrivée.")
-                elif reservation_conflict(selected_room["id"], arrival, departure):
-                    st.error("Cette chambre est déjà réservée sur ces dates.")
-                else:
-                    nights = (departure - arrival).days
-                    total = nights * int(selected_room["nightly_rate"])
-                    run(
-                        """
-                        INSERT INTO reservations(
-                            room_id, client, phone, arrival, departure,
-                            nightly_rate, total, status
-                        )
-                        VALUES (?, ?, ?, ?, ?, ?, ?, 'Confirmée')
-                        """,
-                        (
-                            selected_room["id"],
-                            clean_client,
-                            phone.strip(),
-                            arrival.isoformat(),
-                            departure.isoformat(),
-                            int(selected_room["nightly_rate"]),
-                            total,
-                        ),
-                    )
-                    st.success(f"✅ Réservation enregistrée · {format_ar(total)}")
-                    st.rerun()
-        else:
-            st.info("Aucune chambre disponible.")
-
-    with quick_payment:
-        mobile_stays = rows(
-            """
-            SELECT r.id, r.client, r.total, rm.name AS room_name
-            FROM reservations r
-            JOIN rooms rm ON rm.id = r.room_id
-            WHERE r.status != 'Annulée' AND r.checked_out = 0
-            ORDER BY r.arrival, r.id
-            """
-        )
-        if mobile_stays:
-            stay_labels = {
-                f'R{item["id"]:03d} · {item["client"]} · {item["room_name"]}': item
-                for item in mobile_stays
-            }
-            stay_label = st.selectbox(
-                "Séjour",
-                list(stay_labels.keys()),
-                key="mobile_payment_stay",
-            )
-            selected_stay = stay_labels[stay_label]
-            already_paid = paid_for(selected_stay["id"])
-            remaining = max(int(selected_stay["total"]) - already_paid, 0)
-            st.caption(f"Reste hébergement : {format_ar(remaining)}")
-
-            with st.form("mobile_payment_form", clear_on_submit=True):
-                amount = st.number_input(
-                    "Montant (Ar)",
-                    min_value=0,
-                    value=int(remaining),
-                    step=5000,
-                )
-                method = st.selectbox(
-                    "Mode de paiement",
-                    ["Espèces", "MVola", "Orange Money", "Airtel Money", "Carte bancaire"],
-                )
-                save_mobile_payment = st.form_submit_button(
-                    "💳 Enregistrer le paiement",
-                    type="primary",
-                    use_container_width=True,
-                )
-
-            if save_mobile_payment:
-                if amount <= 0:
-                    st.error("Saisissez un montant supérieur à 0.")
-                else:
-                    run(
-                        """
-                        INSERT INTO payments(reservation_id, payment_date, amount, method)
-                        VALUES (?, ?, ?, ?)
-                        """,
-                        (
-                            selected_stay["id"],
-                            today.isoformat(),
-                            int(amount),
-                            method,
-                        ),
-                    )
-                    st.success("✅ Paiement enregistré.")
-                    st.rerun()
-        else:
-            st.info("Aucun séjour à encaisser.")
-
-    st.markdown('<div class="mobile-section-title">📍 Aujourd’hui</div>', unsafe_allow_html=True)
-    if arrivals:
-        for item in arrivals:
-            st.markdown(
-                f"""
-                <div class="mobile-row-card">
-                    <div class="title">🟢 Arrivée · {item["room_name"]}</div>
-                    <div class="meta">{item["client"]} · {item["phone"] or "Téléphone non renseigné"}</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-    else:
-        st.caption("Aucune arrivée aujourd’hui.")
-
-    if departures:
-        for item in departures:
-            st.markdown(
-                f"""
-                <div class="mobile-row-card">
-                    <div class="title">🔵 Départ · {item["room_name"]}</div>
-                    <div class="meta">{item["client"]} · {item["phone"] or "Téléphone non renseigné"}</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-    else:
-        st.caption("Aucun départ aujourd’hui.")
-
-    st.markdown('<div class="mobile-section-title">🛏️ Chambres</div>', unsafe_allow_html=True)
-    for room in room_data:
-        status = room_status(room["id"], room["maintenance"])
-        guest = active_guest_for_room(room["id"])
-        guest_line = guest if guest else "Aucun client en chambre"
+    if mobile_nav == "🏠 Accueil":
         st.markdown(
             f"""
-            <div class="mobile-row-card mobile-room">
-                <div>
-                    <div class="room-name">{room["name"]}</div>
-                    <div class="guest">{guest_line}</div>
+            <div class="mobile-grid">
+                <div class="mobile-stat">
+                    <div class="label">🏨 Occupées</div>
+                    <div class="value">{occupied_count}/{len(room_data)}</div>
                 </div>
-                <div class="mobile-badge">{status}</div>
+                <div class="mobile-stat">
+                    <div class="label">🟢 Libres</div>
+                    <div class="value">{free_count}</div>
+                </div>
+                <div class="mobile-stat">
+                    <div class="label">💰 Aujourd’hui</div>
+                    <div class="value">{format_ar(day_total)}</div>
+                </div>
+                <div class="mobile-stat">
+                    <div class="label">⏳ À encaisser</div>
+                    <div class="value">{format_ar(outstanding)}</div>
+                </div>
             </div>
             """,
             unsafe_allow_html=True,
         )
 
-    st.markdown('<div class="mobile-section-title">📊 Résumé financier</div>', unsafe_allow_html=True)
-    st.markdown(
-        f"""
-        <div class="mobile-grid">
-            <div class="mobile-stat">
-                <div class="label">Encaissements mois</div>
-                <div class="value">{format_ar(month_total)}</div>
+        st.markdown('<div class="mobile-section-title">⚡ Actions rapides</div>', unsafe_allow_html=True)
+        quick_reservation, quick_payment = st.tabs(["➕ Réservation", "💳 Paiement"])
+
+        with quick_reservation:
+            available_rooms = rows(
+                """
+                SELECT id, name, nightly_rate
+                FROM rooms
+                WHERE maintenance = 0
+                ORDER BY name
+                """
+            )
+            if available_rooms:
+                mobile_room_labels = {
+                    f'{room["name"]} — {format_ar(room["nightly_rate"])}': room
+                    for room in available_rooms
+                }
+                mobile_room_label = st.selectbox(
+                    "Chambre",
+                    list(mobile_room_labels.keys()),
+                    key="mobile_reservation_room",
+                )
+                selected_room = mobile_room_labels[mobile_room_label]
+
+                with st.form("mobile_new_reservation", clear_on_submit=True):
+                    client = st.text_input("Nom du client", key="mobile_client")
+                    phone = st.text_input("Téléphone", key="mobile_phone")
+                    arrival = st.date_input(
+                        "Arrivée",
+                        value=today,
+                        key="mobile_arrival",
+                    )
+                    departure = st.date_input(
+                        "Départ",
+                        value=today + timedelta(days=1),
+                        key="mobile_departure",
+                    )
+                    save_mobile_reservation = st.form_submit_button(
+                        "✅ Enregistrer",
+                        type="primary",
+                        use_container_width=True,
+                    )
+
+                if save_mobile_reservation:
+                    clean_client = client.strip()
+                    if not clean_client:
+                        st.error("Saisissez le nom du client.")
+                    elif departure <= arrival:
+                        st.error("La date de départ doit être après l’arrivée.")
+                    elif reservation_conflict(selected_room["id"], arrival, departure):
+                        st.error("Cette chambre est déjà réservée sur ces dates.")
+                    else:
+                        nights = (departure - arrival).days
+                        total = nights * int(selected_room["nightly_rate"])
+                        run(
+                            """
+                            INSERT INTO reservations(
+                                room_id, client, phone, arrival, departure,
+                                nightly_rate, total, status
+                            )
+                            VALUES (?, ?, ?, ?, ?, ?, ?, 'Confirmée')
+                            """,
+                            (
+                                selected_room["id"],
+                                clean_client,
+                                phone.strip(),
+                                arrival.isoformat(),
+                                departure.isoformat(),
+                                int(selected_room["nightly_rate"]),
+                                total,
+                            ),
+                        )
+                        st.success(f"✅ Réservation enregistrée · {format_ar(total)}")
+                        st.rerun()
+            else:
+                st.info("Aucune chambre disponible.")
+
+        with quick_payment:
+            mobile_stays = rows(
+                """
+                SELECT r.id, r.client, r.total, rm.name AS room_name
+                FROM reservations r
+                JOIN rooms rm ON rm.id = r.room_id
+                WHERE r.status != 'Annulée' AND r.checked_out = 0
+                ORDER BY r.arrival, r.id
+                """
+            )
+            if mobile_stays:
+                stay_labels = {
+                    f'R{item["id"]:03d} · {item["client"]} · {item["room_name"]}': item
+                    for item in mobile_stays
+                }
+                stay_label = st.selectbox(
+                    "Séjour",
+                    list(stay_labels.keys()),
+                    key="mobile_payment_stay",
+                )
+                selected_stay = stay_labels[stay_label]
+                already_paid = paid_for(selected_stay["id"])
+                remaining = max(int(selected_stay["total"]) - already_paid, 0)
+                st.caption(f"Reste hébergement : {format_ar(remaining)}")
+
+                with st.form("mobile_payment_form", clear_on_submit=True):
+                    amount = st.number_input(
+                        "Montant (Ar)",
+                        min_value=0,
+                        value=int(remaining),
+                        step=5000,
+                    )
+                    method = st.selectbox(
+                        "Mode de paiement",
+                        ["Espèces", "MVola", "Orange Money", "Airtel Money", "Carte bancaire"],
+                    )
+                    save_mobile_payment = st.form_submit_button(
+                        "💳 Enregistrer le paiement",
+                        type="primary",
+                        use_container_width=True,
+                    )
+
+                if save_mobile_payment:
+                    if amount <= 0:
+                        st.error("Saisissez un montant supérieur à 0.")
+                    else:
+                        run(
+                            """
+                            INSERT INTO payments(reservation_id, payment_date, amount, method)
+                            VALUES (?, ?, ?, ?)
+                            """,
+                            (
+                                selected_stay["id"],
+                                today.isoformat(),
+                                int(amount),
+                                method,
+                            ),
+                        )
+                        st.success("✅ Paiement enregistré.")
+                        st.rerun()
+            else:
+                st.info("Aucun séjour à encaisser.")
+
+        st.markdown('<div class="mobile-section-title">📍 Aujourd’hui</div>', unsafe_allow_html=True)
+        if arrivals:
+            for item in arrivals:
+                st.markdown(
+                    f"""
+                    <div class="mobile-row-card">
+                        <div class="title">🟢 Arrivée · {item["room_name"]}</div>
+                        <div class="meta">{item["client"]} · {item["phone"] or "Téléphone non renseigné"}</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+        else:
+            st.caption("Aucune arrivée aujourd’hui.")
+
+        if departures:
+            for item in departures:
+                st.markdown(
+                    f"""
+                    <div class="mobile-row-card">
+                        <div class="title">🔵 Départ · {item["room_name"]}</div>
+                        <div class="meta">{item["client"]} · {item["phone"] or "Téléphone non renseigné"}</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+        else:
+            st.caption("Aucun départ aujourd’hui.")
+
+        st.markdown('<div class="mobile-section-title">🛏️ Chambres</div>', unsafe_allow_html=True)
+        for room in room_data:
+            status = room_status(room["id"], room["maintenance"])
+            guest = active_guest_for_room(room["id"])
+            guest_line = guest if guest else "Aucun client en chambre"
+            st.markdown(
+                f"""
+                <div class="mobile-row-card mobile-room">
+                    <div>
+                        <div class="room-name">{room["name"]}</div>
+                        <div class="guest">{guest_line}</div>
+                    </div>
+                    <div class="mobile-badge">{status}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+    elif mobile_nav == "🛏️ Chambres":
+        st.markdown('<div class="mobile-section-title">🛏️ Gestion des chambres</div>', unsafe_allow_html=True)
+        for room in room_data:
+            status = room_status(room["id"], room["maintenance"])
+            current = current_room_stay(room["id"])
+            upcoming = next_room_booking(room["id"])
+            amenities = " · ".join(
+                [x for x in (room.get("amenities") or "").split("|") if x][:5]
+            ) or "Équipements à renseigner"
+            guest_line = (
+                f'{current["client"]} · départ {current["departure"]}'
+                if current else "Aucun client"
+            )
+            next_line = (
+                f'Prochaine arrivée {upcoming["arrival"]} · {upcoming["client"]}'
+                if upcoming else "Aucune réservation à venir"
+            )
+            st.markdown(
+                f"""
+                <div class="mobile-row-card">
+                    <div class="title">{room["name"]} · {room.get("room_type", "Chambre")}</div>
+                    <div class="meta">{status} · 🧹 {room.get("housekeeping_status", "Prête")}</div>
+                    <div class="meta">🛏️ {room.get("bed_type", "Lit double")} · 👥 {room.get("capacity_adults", 2)} ad. + {room.get("capacity_children", 0)} enf.</div>
+                    <div class="meta">👤 {guest_line}</div>
+                    <div class="meta">📅 {next_line}</div>
+                    <div class="meta">✨ {amenities}</div>
+                    <div class="meta"><b>{format_ar(room["nightly_rate"])}</b> / nuit</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+        if room_data:
+            room_labels = {room["name"]: room for room in room_data}
+            room_label = st.selectbox(
+                "Mettre à jour une chambre",
+                list(room_labels.keys()),
+                key="mobile_housekeeping_room",
+            )
+            room = room_labels[room_label]
+            options = ["Prête", "À nettoyer", "En nettoyage", "Hors service"]
+            current_status = room.get("housekeeping_status", "Prête")
+            new_status = st.selectbox(
+                "État ménage",
+                options,
+                index=options.index(current_status) if current_status in options else 0,
+                key="mobile_housekeeping_status",
+            )
+            if st.button("💾 Mettre à jour", use_container_width=True, key="mobile_housekeeping_save"):
+                run(
+                    "UPDATE rooms SET housekeeping_status = ? WHERE id = ?",
+                    (new_status, room["id"]),
+                )
+                st.success("✅ État de la chambre mis à jour.")
+                st.rerun()
+
+    elif mobile_nav == "📅 Réservations":
+        st.markdown('<div class="mobile-section-title">📅 Réservations</div>', unsafe_allow_html=True)
+        mobile_reservations = rows(
+            """
+            SELECT r.id, r.room_id, r.client, r.phone, r.arrival, r.departure,
+                   r.total, r.checked_in, r.checked_out, rm.name AS room_name
+            FROM reservations r
+            JOIN rooms rm ON rm.id = r.room_id
+            WHERE r.status != 'Annulée'
+            ORDER BY r.arrival DESC, r.id DESC
+            LIMIT 30
+            """
+        )
+        if mobile_reservations:
+            for item in mobile_reservations:
+                if item["checked_out"]:
+                    state = "🔵 Check-out"
+                elif item["checked_in"]:
+                    state = "🟣 En séjour"
+                elif item["arrival"] > today.isoformat():
+                    state = "🟠 À venir"
+                else:
+                    state = "🟡 Arrivée attendue"
+                st.markdown(
+                    f"""
+                    <div class="mobile-row-card">
+                        <div class="title">R{item["id"]:03d} · {item["client"]}</div>
+                        <div class="meta">{item["room_name"]} · {item["arrival"]} → {item["departure"]}</div>
+                        <div class="meta">{state} · {format_ar(item["total"])}</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+            active_ops = [x for x in mobile_reservations if not x["checked_out"]]
+            if active_ops:
+                op_labels = {
+                    f'R{x["id"]:03d} · {x["client"]} · {x["room_name"]}': x
+                    for x in active_ops
+                }
+                op_label = st.selectbox(
+                    "Action sur un séjour",
+                    list(op_labels.keys()),
+                    key="mobile_stay_action",
+                )
+                stay = op_labels[op_label]
+                c1, c2 = st.columns(2)
+                with c1:
+                    if not stay["checked_in"] and st.button(
+                        "🟣 Check-in",
+                        use_container_width=True,
+                        key="mobile_checkin",
+                    ):
+                        run(
+                            "UPDATE reservations SET checked_in = 1, checkin_at = CURRENT_TIMESTAMP WHERE id = ?",
+                            (stay["id"],),
+                        )
+                        st.success("✅ Check-in fait.")
+                        st.rerun()
+                with c2:
+                    if stay["checked_in"] and st.button(
+                        "🔵 Check-out",
+                        use_container_width=True,
+                        key="mobile_checkout",
+                    ):
+                        pending_bar = one(
+                            "SELECT COALESCE(SUM(total), 0) AS total FROM bar_sales WHERE room_id = ? AND paid = 0",
+                            (stay["room_id"],),
+                        )
+                        pending_amount = int(pending_bar["total"] if pending_bar else 0)
+                        if pending_amount > 0:
+                            st.error(f"🍹 Note bar à régler : {format_ar(pending_amount)}")
+                        else:
+                            run(
+                                "UPDATE reservations SET checked_out = 1, checkout_at = CURRENT_TIMESTAMP WHERE id = ?",
+                                (stay["id"],),
+                            )
+                            run(
+                                "UPDATE rooms SET housekeeping_status = 'À nettoyer' WHERE id = ?",
+                                (stay["room_id"],),
+                            )
+                            st.success("✅ Check-out fait. Chambre à nettoyer.")
+                            st.rerun()
+        else:
+            st.info("Aucune réservation enregistrée.")
+
+    elif mobile_nav == "🍹 Bar":
+        st.markdown('<div class="mobile-section-title">🍹 Bar</div>', unsafe_allow_html=True)
+        products = rows(
+            """
+            SELECT id, name, category, emoji, price, stock
+            FROM bar_products
+            WHERE active = 1
+            ORDER BY category, name
+            """
+        )
+        categories = sorted({p["category"] for p in products})
+        cat = st.selectbox(
+            "Catégorie",
+            ["Tous"] + categories,
+            key="mobile_bar_category",
+        )
+        search = st.text_input(
+            "Rechercher",
+            placeholder="Mojito, café, bière…",
+            key="mobile_bar_search",
+        )
+        filtered = products
+        if cat != "Tous":
+            filtered = [p for p in filtered if p["category"] == cat]
+        if search.strip():
+            needle = search.strip().lower()
+            filtered = [p for p in filtered if needle in p["name"].lower()]
+
+        if filtered:
+            product_labels = {
+                f'{p["emoji"]} {p["name"]} · {format_ar(p["price"])} · stock {p["stock"]}': p
+                for p in filtered if int(p["stock"]) > 0
+            }
+            if product_labels:
+                product_label = st.selectbox(
+                    "Produit",
+                    list(product_labels.keys()),
+                    key="mobile_bar_product",
+                )
+                selected_product = product_labels[product_label]
+                qty = st.number_input(
+                    "Quantité",
+                    min_value=1,
+                    max_value=max(1, int(selected_product["stock"])),
+                    value=1,
+                    step=1,
+                    key="mobile_bar_qty",
+                )
+                if st.button(
+                    "➕ Ajouter au panier",
+                    use_container_width=True,
+                    key="mobile_bar_add",
+                ):
+                    try:
+                        add_product_to_bar_cart(selected_product, qty)
+                        st.rerun()
+                    except ValueError as exc:
+                        st.warning(str(exc))
+
+        if st.session_state.bar_cart:
+            st.markdown("#### 🧺 Panier")
+            cart_total = 0
+            for item in st.session_state.bar_cart:
+                subtotal = int(item["price"]) * int(item["quantity"])
+                cart_total += subtotal
+                st.write(
+                    f'{item["emoji"]} **{item["name"]}** · '
+                    f'{item["quantity"]} × {format_ar(item["price"])}'
+                )
+            st.metric("Total", format_ar(cart_total))
+
+            customer_type = st.radio(
+                "Client",
+                ["🏨 Chambre", "🍹 Extérieur"],
+                horizontal=True,
+                key="mobile_bar_customer",
+            )
+            room_id = None
+            guest_name = ""
+            if customer_type == "🏨 Chambre":
+                occupied = [
+                    room for room in room_data
+                    if room_status(room["id"], room["maintenance"]) == "🔴 Occupée"
+                ]
+                if occupied:
+                    room_labels = {
+                        f'{room["name"]} · {active_guest_for_room(room["id"]) or "Client"}': room
+                        for room in occupied
+                    }
+                    selected_room_label = st.selectbox(
+                        "Chambre",
+                        list(room_labels.keys()),
+                        key="mobile_bar_room",
+                    )
+                    selected_room = room_labels[selected_room_label]
+                    room_id = selected_room["id"]
+                    guest_name = active_guest_for_room(room_id)
+                else:
+                    st.warning("Aucune chambre occupée.")
+            else:
+                guest_name = st.text_input(
+                    "Nom du client (facultatif)",
+                    key="mobile_bar_external_name",
+                )
+
+            methods = ["Espèces", "MVola", "Orange Money", "Airtel Money", "Carte bancaire"]
+            if room_id is not None:
+                methods.append("Ajouter à la chambre")
+            method = st.selectbox(
+                "Règlement",
+                methods,
+                key="mobile_bar_method",
+            )
+
+            if st.button(
+                "✅ Valider la commande",
+                type="primary",
+                use_container_width=True,
+                key="mobile_bar_validate",
+            ):
+                if customer_type == "🏨 Chambre" and room_id is None:
+                    st.error("Sélectionnez une chambre.")
+                else:
+                    try:
+                        ticket = save_bar_ticket(
+                            st.session_state.bar_cart,
+                            method,
+                            room_id,
+                            guest_name,
+                        )
+                        st.session_state.bar_cart = []
+                        st.success(f"✅ Commande {ticket} enregistrée.")
+                        st.rerun()
+                    except ValueError as exc:
+                        st.error(str(exc))
+        else:
+            st.caption("Panier vide.")
+
+        recent_bar = rows(
+            """
+            SELECT bs.ticket, bs.sale_date, SUM(bs.total) AS total,
+                   MAX(bs.client) AS client, rm.name AS room_name
+            FROM bar_sales bs
+            LEFT JOIN rooms rm ON rm.id = bs.room_id
+            GROUP BY bs.ticket, bs.sale_date, rm.name
+            ORDER BY MAX(bs.id) DESC
+            LIMIT 8
+            """
+        )
+        if recent_bar:
+            st.markdown("#### 🧾 Dernières commandes")
+            for item in recent_bar:
+                st.markdown(
+                    f"""
+                    <div class="mobile-row-card">
+                        <div class="title">{item["ticket"]} · {format_ar(item["total"])}</div>
+                        <div class="meta">{item["room_name"] or "Client extérieur"} · {item["client"] or "-"}</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+    elif mobile_nav == "💰 Finances":
+        st.markdown('<div class="mobile-section-title">💰 Finances</div>', unsafe_allow_html=True)
+        st.markdown(
+            f"""
+            <div class="mobile-grid">
+                <div class="mobile-stat">
+                    <div class="label">Encaissements jour</div>
+                    <div class="value">{format_ar(day_total)}</div>
+                </div>
+                <div class="mobile-stat">
+                    <div class="label">Dépenses jour</div>
+                    <div class="value">{format_ar(expense_day)}</div>
+                </div>
+                <div class="mobile-stat">
+                    <div class="label">Encaissements mois</div>
+                    <div class="value">{format_ar(month_total)}</div>
+                </div>
+                <div class="mobile-stat">
+                    <div class="label">Résultat mois</div>
+                    <div class="value">{format_ar(month_total - expense_month)}</div>
+                </div>
             </div>
-            <div class="mobile-stat">
-                <div class="label">Dépenses mois</div>
-                <div class="value">{format_ar(expense_month)}</div>
-            </div>
-            <div class="mobile-stat">
-                <div class="label">Résultat mois</div>
-                <div class="value">{format_ar(month_total - expense_month)}</div>
-            </div>
-            <div class="mobile-stat">
-                <div class="label">Réservées</div>
-                <div class="value">{reserved_count}</div>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+            """,
+            unsafe_allow_html=True,
+        )
+        st.metric("⏳ À encaisser", format_ar(outstanding))
+
+        recent_payments = rows(
+            """
+            SELECT p.payment_date, p.amount, p.method, r.client, rm.name AS room_name
+            FROM payments p
+            JOIN reservations r ON r.id = p.reservation_id
+            JOIN rooms rm ON rm.id = r.room_id
+            ORDER BY p.id DESC
+            LIMIT 10
+            """
+        )
+        if recent_payments:
+            st.markdown("#### Derniers paiements")
+            for item in recent_payments:
+                st.markdown(
+                    f"""
+                    <div class="mobile-row-card">
+                        <div class="title">{format_ar(item["amount"])} · {item["method"]}</div>
+                        <div class="meta">{item["client"]} · {item["room_name"]} · {item["payment_date"]}</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+        recent_expenses = rows(
+            """
+            SELECT expense_date, category, description, amount
+            FROM expenses
+            ORDER BY id DESC
+            LIMIT 8
+            """
+        )
+        if recent_expenses:
+            st.markdown("#### Dernières dépenses")
+            for item in recent_expenses:
+                st.markdown(
+                    f"""
+                    <div class="mobile-row-card">
+                        <div class="title">− {format_ar(item["amount"])} · {item["category"]}</div>
+                        <div class="meta">{item["description"] or "Sans description"} · {item["expense_date"]}</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
 
     st.caption("Palmeria Mobile Manager · mêmes données que la réception")
     st.markdown("</div>", unsafe_allow_html=True)
